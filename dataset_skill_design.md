@@ -270,6 +270,15 @@ signature:
 - 目标转换：如何进入本 Skill 的目标格式。
 - 风险点：需要下载样本或二次确认的问题。
 
+Metadata 中的模态来源层级统一按以下含义使用：
+
+- 原生：数据集已经直接提供该模态或字段，adapter 读取后即可使用，但仍需做格式、单位、坐标系归一。
+- 渲染生成：数据集未直接提供该模态，但提供了 mesh、CAD、USD、GLB、URDF、3DGS 或场景配置等资产，可通过渲染器生成 RGB、depth、semantic、mask 等观测。
+- 采样生成：数据集没有固定观测序列或相机轨迹，需要由适配流程定义采样策略，例如相机位姿、视角数量、导航轨迹、frame pair 或物体观察角度；采样结果通常再用于渲染。
+- 派生：数据集未直接给出目标模态，但可由已有真实传感器或标注计算得到，例如 LiDAR 投影生成稀疏 depth、RGB-D 融合生成点云、mesh 采样生成点云。
+- 估计/pseudo：数据集没有对应真值，只能通过 SfM、SLAM、单目深度、分割模型或其他算法估计；导出时必须标记为伪标签，不能当作 ground truth。
+- 无：数据集不提供该模态，也没有足够可靠的资产或传感器信息生成它。
+
 ### 113. 3D-FRONT
 
 官方/主要参考：
@@ -278,6 +287,8 @@ signature:
 - https://dlr-rm.github.io/BlenderProc/examples/datasets/front_3d/README.html
 
 原始内容：合成室内家居场景。核心是房屋/房间布局 JSON，家具资产来自 3D-FUTURE，纹理来自 3D-FRONT-texture。论文说明该数据集包含大规模 furnished rooms、布局语义和高质量带纹理家具模型。
+
+Metadata：profile=rendered_indoor_scene；domain=室内合成场景；modalities=RGB:渲染生成, depth:渲染生成, sem2d:渲染生成, pose:采样生成, pointcloud:mesh采样, pc_sem:实例映射, text:无, gs:无；geometry=CAD/mesh原生；convention=Blender/asset坐标需确认；access=public/需确认；risk=JSON到3D-FUTURE资产映射、单位和材质缺失。
 
 格式/目录：常见下载包包括 `3D-FRONT/`、`3D-FUTURE-model/`、`3D-FRONT-texture/`。`3D-FRONT` 内每个 JSON 表示一个 house/flat；渲染时需要同时传入 JSON、3D-FUTURE 模型路径和 texture 路径。
 
@@ -294,6 +305,8 @@ signature:
 - https://facebookresearch.github.io/projectaria_tools/docs/open_datasets/aria_synthetic_environments_dataset/ase_data_format
 
 原始内容：合成室内场景，提供 RGB、depth、instance segmentation、trajectory、scene language、semidense points/observations、object-to-class mapping。
+
+Metadata：profile=rgbd_sequence；domain=室内合成场景；modalities=RGB:原生, depth:ray_distance_mm原生, sem2d:instance原生, pose:trajectory原生, pointcloud:semidense原生, pc_sem:弱映射, text:scene_language原生, gs:无；geometry=无；convention=fisheye + ray depth；access=public；risk=不能把fisheye/ray depth当作pinhole/z-depth。
 
 格式/目录：每个 scene 目录通常包含：
 
@@ -325,6 +338,8 @@ RGB 为 fisheye JPEG，通常 10 FPS；depth 为 16-bit PNG，单位为毫米，
 
 原始内容：真实室内 RGB-D 扫描。包括低/高分辨率 RGB、低/高分辨率 depth、confidence、ARKit pose、mesh/point cloud、3D object annotations 等，具体取决于 raw、3dod、upsampling 子集。
 
+Metadata：profile=indoor_rgbd_scan；domain=真实室内扫描；modalities=RGB:原生, depth:原生, sem2d:有限/子集, pose:原生, pointcloud:原生, pc_sem:3D标注子集, text:无, gs:无；geometry=mesh原生；convention=ARKit pose/单位需样本确认；access=public；risk=子集字段差异、pose缺失、confidence过滤。
+
 格式/目录：官方 `DATA.md` 说明常见文件包括 `.png` RGB/depth/confidence、`.pincam` 相机内参、`.json` 3D annotation、`.traj` timestamp + axis-angle + translation、`.ply` mesh/point cloud、`.mov` 视频、`_pose.txt` 逐帧 pose。
 
 目标转换：选择 `raw` 或 `upsampling` 子集时，抽取 RGB/depth/confidence/pose/intrinsics；选择 `3dod` 子集时，额外抽取 3D bounding boxes 和 scene mesh。`.traj` 或 `_pose.txt` 转换为 `T_c2w` 前必须确认方向。depth 通常为 metric depth，但需用样本确认单位与尺度。
@@ -340,6 +355,8 @@ RGB 为 fisheye JPEG，通常 10 FPS；depth 为 16-bit PNG，单位为毫米，
 - https://github.com/bdd100k/bdd100k
 
 原始内容：真实自动驾驶视频/图像数据。主要提供 RGB、检测框、车道线、可行驶区域、语义/实例/panoptic 分割等 2D 标注。通常不提供深度、相机位姿和点云。
+
+Metadata：profile=driving_2d_perception；domain=真实道路驾驶；modalities=RGB:原生, depth:无, sem2d:原生, pose:无, pointcloud:无, pc_sem:无, text:无, gs:无；geometry=无；convention=2D image task schema；access=public/需注册确认；risk=不能伪装几何真值，视频和标注同步需确认。
 
 格式/目录：常见组织为：
 
@@ -364,6 +381,8 @@ labels 多为 JSON；`images/100k` 通常是从视频抽取的关键帧；不同
 - https://github.com/YoYo000/BlendedMVS
 
 原始内容：MVS/NVS 训练数据，包含多视图 RGB、渲染/融合深度图、相机参数、pair 信息，场景涵盖建筑、雕塑、小物体等。
+
+Metadata：profile=multiview_mvs；domain=多视图重建场景；modalities=RGB:原生, depth:pfm原生, sem2d:无, pose:相机参数原生, pointcloud:MVS可重建, pc_sem:无, text:无, gs:无；geometry=相机+深度/pair；convention=MVSNet world-to-camera常见；access=public；risk=外参方向和depth range解析。
 
 格式/目录：常见结构：
 
@@ -393,6 +412,8 @@ BlendedMVS/
 - https://github.com/facebookresearch/co3d
 
 原始内容：真实 object-centric 多视图数据，提供 RGB、foreground masks、depth/depth masks、camera poses、point cloud、category/sequence annotations。v2 相比 v1 有更多 sequences/frames 和更好的 mask。
+
+Metadata：profile=object_multiview_sequence；domain=真实物体中心序列；modalities=RGB:原生, depth:原生, sem2d:foreground mask, pose:原生, pointcloud:原生, pc_sem:类别级弱语义, text:类别元数据, gs:无；geometry=point cloud原生；convention=PyTorch3D/CO3D camera需归一；access=public；risk=v1/v2结构差异和mask/depth有效性。
 
 格式/目录：典型 v2 结构：
 
@@ -424,6 +445,8 @@ set_lists/*.json
 - https://huggingface.co/datasets/DL3DV/DL3DV-10K
 
 原始内容：大规模真实视频数据，面向 NVS/3D reconstruction。提供 4K 视频、COLMAP 标定结果、稀疏点云、downsampled images、`transforms.json` 等。
+
+Metadata：profile=scene_multiview_recon；domain=真实多视图场景；modalities=RGB:原生, depth:重建派生/非GT, sem2d:scene label非像素级, pose:原生, pointcloud:COLMAP可导出, pc_sem:无, text:human scene labels, gs:原生/benchmark；geometry=Nerfstudio/3DGS/COLMAP；convention=Nerfstudio/OpenGL与COLMAP需区分；access=public/需确认；risk=视频抽帧、相机约定和重建产物对齐。
 
 格式/目录：常见样例结构：
 
@@ -458,6 +481,8 @@ set_lists/*.json
 
 原始内容：真实室内/建筑级 textured 3D mesh，常用于 Habitat。包含 `.glb/.obj` mesh、textures、语义版本/语义映射（取决于下载版本）。不直接提供 RGB-D 轨迹帧。
 
+Metadata：profile=rendered_indoor_mesh；domain=真实室内mesh资产；modalities=RGB:渲染生成, depth:渲染生成, sem2d:语义版可渲染, pose:采样生成, pointcloud:mesh采样, pc_sem:语义版映射, text:无, gs:无；geometry=mesh原生；convention=Habitat坐标/语义版本需确认；access=agreement_required/token；risk=下载门槛、语义版差异和相机采样有效性。
+
 格式/目录：通常以 scene 为单位存储 mesh asset，例如 `.glb` 或 `.obj + .mtl + textures`；HM3D Semantics 版本提供带实例/类别颜色或语义映射的 mesh。
 
 目标转换：作为 mesh-first 数据集，需要 RenderAgent 在 Habitat-Sim 中采样导航轨迹或相机位姿，渲染 RGB/depth/semantic，生成 `frames.jsonl` 和 `pairs.jsonl`。原始 mesh 存入 `meshes/`。
@@ -472,6 +497,8 @@ set_lists/*.json
 - https://github.com/apple/ml-hypersim
 
 原始内容：大规模 photorealistic synthetic indoor 数据，提供 RGB/HDR、depth、surface normal、3D position、semantic、semantic instance、mesh/object metadata、camera trajectory、lighting/material 信息。
+
+Metadata：profile=indoor_synthetic_fullmodal；domain=合成室内场景；modalities=RGB:原生, depth:meters原生, sem2d:原生, pose:原生, pointcloud:position/depth生成, pc_sem:语义对齐, text:无, gs:无；geometry=mesh/object metadata；convention=asset units到meters + camera convention；access=public；risk=HDF5体量、官方过滤列表和单位换算。
 
 格式/目录：典型 scene 包含 `_detail/` 和 `images/`。`_detail` 中有 `metadata_scene.csv`、camera orientation/position hdf5、mesh/object metadata、bounding boxes 等；`images` 中包含 `scene_cam_##_final_hdf5`、`geometry_hdf5`、`semantic_hdf5` 等，字段如 `depth_meters.hdf5`、`normal_cam.hdf5`、`position.hdf5`、`semantic.hdf5`、`semantic_instance.hdf5`。
 
@@ -489,6 +516,8 @@ set_lists/*.json
 
 原始内容：真实建筑级 RGB-D panorama/mesh 数据，包含大量 RGB-D 图像、camera poses、surface reconstructions、2D/3D semantic annotations、region/object annotations。
 
+Metadata：profile=indoor_rgbd_mesh；domain=真实室内建筑；modalities=RGB:原生, depth:原生, sem2d:原生/可导出, pose:原生, pointcloud:RGB-D/mesh生成, pc_sem:region/object语义, text:无, gs:无；geometry=mesh原生；convention=panorama/local view/mesh坐标需统一；access=agreement_required；risk=许可、全景相机模型和多坐标系对齐。
+
 格式/目录：常见数据包括 color/depth images、intrinsics、poses、textured meshes、floor plans、house_segmentations、region/object semantics。图像命名通常包含 scan/region/panorama/view 等字段；mesh `.ply` 可包含 material/segment/category 等属性；`.fsegs.json` 和 `.semseg.json` 存储面片分割和语义聚合。
 
 目标转换：可直接从 RGB-D + pose 构建前馈训练数据，也可从 mesh 渲染补充视角。全景图可拆分成 perspective views，也可保留 equirectangular camera model；mesh/region/object semantics 写入 annotations 与 scene_graph。
@@ -503,6 +532,8 @@ set_lists/*.json
 - https://www.cs.cornell.edu/projects/megadepth/
 
 原始内容：从互联网照片集合通过 SfM/MVS 生成的大规模单目深度数据。主要用于单目深度和几何学习，场景多为室外地标/建筑。
+
+Metadata：profile=internet_photo_depth_sfm；domain=室外地标/建筑；modalities=RGB:原生, depth:预处理原生, sem2d:无, pose:SfM/预处理, pointcloud:SfM稀疏点, pc_sem:无, text:无, gs:无；geometry=COLMAP/SfM；convention=COLMAP/OpenCV常见但来源需记录；access=public/镜像差异；risk=版本分散、pose/depth是否官方GT不稳定。
 
 格式/目录：官方页面说明其由 Internet photo collections 经 SfM/MVS 生成。实际使用中常见预处理包会包含 undistorted images、depth maps、camera intrinsics/extrinsics 或 COLMAP/SfM 输出，但不同镜像/二次处理版本差异较大。
 
@@ -520,6 +551,8 @@ set_lists/*.json
 
 原始内容：object-centric 多视图真实视频/图像数据，覆盖大量物体类别。提供 RGB、object masks、camera parameters、point clouds 等标注。
 
+Metadata：profile=object_multiview_colmap；domain=真实物体多视图；modalities=RGB:原生, depth:无/可估计, sem2d:mask子集, pose:COLMAP原生, pointcloud:稀疏点原生, pc_sem:类别/实例级, text:类别标签, gs:无；geometry=COLMAP稀疏模型；convention=COLMAP/OpenCV；access=gated/form；risk=下载门槛、子集不一致和mask可用性。
+
 格式/目录：官方仓库说明 MVImgNet 包含数百万帧、数十万视频和数百类别；完整数据通常按 category 分包下载。具体目录按 category/object/video 组织，标注包含 masks、camera parameters、point clouds。
 
 目标转换：按 object instance 作为 scene；RGB 与 masks 写入 frame；camera/pose 写入 `cameras/poses`；point cloud 写入 `point_clouds`。适合构建 object-level multiview 前馈数据。
@@ -534,6 +567,8 @@ set_lists/*.json
 - https://luyues.github.io/mvimgnet2/
 
 原始内容：MVImgNet 的扩展版本，包含更多 object instances/categories，并提供 segment masks、SfM poses、dense point clouds 等。
+
+Metadata：profile=object_multiview_colmap_dense；domain=真实物体多视图；modalities=RGB:原生, depth:无/可估计, sem2d:mask改进, pose:SfM原生, pointcloud:dense原生, pc_sem:类别/实例级, text:类别标签, gs:无；geometry=SfM/点云；convention=SfM/OpenCV需确认；access=gated/需确认；risk=与MVImgNet版本差异和dense点云尺度。
 
 格式/目录：以 object/category 为主组织，提供 360-degree views、masks、camera parameters/SfM poses、dense point clouds。具体目录需下载样本确认。
 
@@ -550,6 +585,8 @@ set_lists/*.json
 - https://github.com/nutonomy/nuscenes-devkit
 
 原始内容：真实自动驾驶多传感器数据。提供 6 cameras、LiDAR、radar、ego pose、calibrated sensor、3D boxes、map、lidarseg/panoptic 等。
+
+Metadata：profile=driving_multisensor_sequence；domain=真实城市驾驶；modalities=RGB:原生, depth:LiDAR投影派生, sem2d:2D框/分割可用, pose:ego/sensor原生, pointcloud:LiDAR/Radar原生, pc_sem:lidarseg/panoptic可选, text:scene metadata, gs:无；geometry=无；convention=global/ego/sensor链路；access=public/需注册；risk=token关系表、时间同步和坐标链路。
 
 格式/目录：nuScenes 是 token-based relational schema。核心表包括 `scene`、`sample`、`sample_data`、`sample_annotation`、`sensor`、`calibrated_sensor`、`ego_pose`、`map`、`lidarseg` 等。camera image 和 lidar/radar point cloud 通过 `sample_data.filename` 指向文件；`calibrated_sensor` 保存传感器外参和 camera intrinsic；`ego_pose` 保存 ego-to-global pose。
 
@@ -573,6 +610,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 
 原始内容：超大规模 3D object asset 数据集，包含 10M+ 3D objects。对象来自多源，许可证逐对象不同。通常通过 Python API 下载 metadata 和 object assets。
 
+Metadata：profile=asset_bank；domain=物体资产；modalities=RGB:渲染生成, depth:渲染生成, sem2d:asset id渲染, pose:采样生成, pointcloud:mesh采样, pc_sem:metadata弱映射, text:metadata/tags, gs:无；geometry=mesh多格式原生；convention=asset坐标/尺度需归一；access=mixed_license；risk=逐对象license、可渲染性和格式清洗。
+
 格式/目录：通过 `objaverse` API 或 Hugging Face 访问。对象文件可能为 glb/gltf/obj/fbx/usd 等多种格式，metadata 提供 uid、source、license、tags/captions 等。仓库提供 rendering scripts。
 
 目标转换：这是 asset-first 数据集。需要先筛选可渲染、可归一化、license 允许的对象，再用 Blender/Trimesh 渲染多视角 RGB-D/normal/mask，构建 object-level 前馈数据。原始 asset 复制到 `meshes/`，metadata 写入 captions/tags。
@@ -587,6 +626,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 - https://huggingface.co/datasets/nkp37/OpenVid-1M
 
 原始内容：大规模 text-video 数据，提供视频文件及 CSV/JSON 描述，包含 caption/metadata。无官方深度、相机位姿、点云。
+
+Metadata：profile=video_text_pretrain；domain=开放域视频；modalities=RGB:视频帧原生, depth:无, sem2d:无, pose:无, pointcloud:无, pc_sem:无, text:caption原生, gs:无；geometry=无；convention=video fps/resolution schema；access=public/需确认；risk=仅能作为弱监督/预训练，几何标签需标注为pseudo。
 
 格式/目录：Hugging Face 数据集包含 `OpenVid-1M.csv`、`OpenVidHD.csv`、`OpenVidHD.json` 与多个视频 zip 分片。CSV 可用 pandas 读取，视频分辨率至少 512×512，OpenVidHD 包含较多 1080p 视频。
 
@@ -604,6 +645,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 
 原始内容：高质量室内空间重建，提供 clean dense geometry、HDR textures、semantic class/instance、planar segmentation、Habitat export。
 
+Metadata：profile=rendered_semantic_mesh；domain=真实室内重建；modalities=RGB:渲染生成, depth:渲染生成, sem2d:语义mesh渲染, pose:采样生成, pointcloud:mesh采样, pc_sem:原生语义映射, text:无, gs:无；geometry=mesh原生；convention=Habitat/mesh坐标；access=public；risk=渲染采样、语义映射和Habitat导出版本。
+
 格式/目录：每个场景常见资产包括 `mesh.ply`、`habitat/mesh_semantic.ply`、`info_semantic.json`、`semantic.bin/json`、textures、navmesh 等。Habitat 目录可直接用于模拟渲染。
 
 目标转换：作为 mesh-first/semantic mesh 数据集，使用 Habitat-Sim 采样相机位姿并渲染 RGB/depth/semantic/instance。mesh 与 semantic metadata 写入 `meshes/` 与 annotations。
@@ -618,6 +661,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replicacad
 
 原始内容：基于 Replica FRL apartment 的可交互 CAD/仿真室内场景，包含 static background、object assets、URDF/physical properties、receptacle metadata、scene configs、navmesh。
+
+Metadata：profile=interactive_sim_scene；domain=室内交互仿真；modalities=RGB:渲染生成, depth:渲染生成, sem2d:渲染生成, pose:采样生成, pointcloud:mesh采样, pc_sem:object metadata映射, text:配置元数据, gs:无；geometry=GLB/URDF/navmesh原生；convention=Habitat scene dataset config；access=public；risk=刚体/关节体/navmesh/receptacle元数据不能丢。
 
 格式/目录：常见组织为 Habitat scene dataset config + stage/object asset configs + navmesh + articulated/rigid object assets。目标是 embodied AI/rearrangement，不是原始 RGB-D 扫描。
 
@@ -635,6 +680,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 
 原始内容：真实 RGB-D video scans，包含 2.5M views、1500+ scans、3D camera poses、surface reconstruction、instance-level semantic segmentations。
 
+Metadata：profile=indoor_rgbd_semantic_scan；domain=真实室内扫描；modalities=RGB:原生, depth:原生, sem2d:原生导出, pose:原生, pointcloud:mesh/点云原生, pc_sem:原生, text:无, gs:无；geometry=mesh原生；convention=ScanNet sensor/mesh坐标；access=agreement_required；risk=.sens解包、2D/3D标注对齐和许可。
+
 格式/目录：每个 scan 通常为 `scene%04d_%02d`，包含 `.sens` 传感器流、mesh、pose、color/depth 导出、`*.aggregation.json`、`*.segs.json`、`*_vh_clean*.ply`、`*_vh_clean_2.labels.ply`、2D label/instance 等。`.sens` 内含 color、depth、pose、intrinsic/extrinsic。
 
 目标转换：先用官方脚本或 adapter 解码 `.sens` 为 RGB/depth/pose；mesh/semantic ply 转 `meshes`；aggregation/segs 转 instance/semantic；按时间邻近生成 pairs。
@@ -650,6 +697,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 
 原始内容：合成/静态物体多视图数据，常用于 MVD/MVS。RobustMVD 转换格式提供 images、poses、intrinsics、depth、invdepth、depth_range 等。
 
+Metadata：profile=synthetic_mvd_regression；domain=合成多视图场景；modalities=RGB:原生/转换后, depth:原生/转换后, sem2d:无, pose:原生/转换后, pointcloud:depth生成, pc_sem:无, text:无, gs:无；geometry=无；convention=RobustMVD schema；access=public/需下载源确认；risk=转换目录结构和无效depth处理。
+
 格式/目录：RobustMVD 统一格式中 sample record 包含：`images` list、`poses` 4×4、`intrinsics`、`keyview_idx`、`depth`、`invdepth`、`depth_range`。depth 单位为米，无效值通常为 0。
 
 目标转换：直接从 RobustMVD format 转为 scene/frame/pair。keyview 与 source views 可对应到 `pairs.jsonl`。depth/invdepth 保留其中一种，优先 depth_m。
@@ -664,6 +713,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 - https://github.com/facebookresearch/uco3d
 
 原始内容：object-centric 真实 turntable 视频数据。提供 RGB video、mask video、depth maps、camera poses、point clouds、segmented point clouds、3D Gaussian splats、LVIS 类别、短/长文本描述。
+
+Metadata：profile=object_video_fullmodal；domain=真实物体中心序列；modalities=RGB:视频原生, depth:H5原生, sem2d:mask原生, pose:原生, pointcloud:多级点云原生, pc_sem:segmented point cloud, text:caption原生, gs:原生；geometry=point cloud/GS；convention=uCO3D sqlite/video时间轴；access=public；risk=sqlite索引、视频帧同步和多模态路径解析。
 
 格式/目录：典型结构：
 
@@ -696,6 +747,8 @@ frame-level metadata、camera poses、paths 等存储在 `metadata.sqlite`；spl
 
 原始内容：常见物体 object set，提供每个物体多视角 RGB-D/RGB 图像、segmentation masks、camera calibration、texture-mapped 3D mesh。面向机器人抓取/操作。
 
+Metadata：profile=object_asset_rgbd；domain=物体资产；modalities=RGB:扫描原生/渲染生成, depth:扫描原生/渲染生成, sem2d:渲染生成, pose:采样/标定生成, pointcloud:扫描/mesh采样, pc_sem:object id映射, text:object metadata, gs:无；geometry=mesh/GLB原生；convention=object frame/renderer frame需统一；access=public；risk=原始YCB与Habitat版字段不同。
+
 格式/目录：YCB 视频/模型包通常以 object 为单位，包含 RGB/RGB-D capture、calibration、mask、mesh。部分版本每个物体有多个相机/turntable 视角。
 
 目标转换：按 object 构建 scene；RGB-D/camera/mask 直接转 frame；mesh 转 `meshes/`；可从 turntable 顺序生成 pairs。若只下载 object model set，则需自行渲染。
@@ -711,6 +764,8 @@ frame-level metadata、camera poses、paths 等存储在 `metadata.sqlite`；spl
 - https://zenodo.org/records/10570660
 
 原始内容：全球建筑物 footprint + height 数据。面向遥感/建筑高度提取，不是图像多视图数据。数据通常以 GIS vector/tile 形式提供，包含 building footprint polygon 和 height 属性。
+
+Metadata：profile=geo_polygon_height；domain=遥感地理建筑；modalities=RGB:无, depth:无, sem2d:polygon/raster原生, pose:地理坐标非相机, pointcloud:无, pc_sem:无, text:属性表, gs:无；geometry=3D footprint polygons；convention=CRS/地理坐标；access=public；risk=CRS、tile范围和height单位。
 
 格式/目录：`gloBFPr` 工具用于搜索、下载和处理全球建筑物 footprint tiles with height；常见格式为 shapefile/GeoPackage/GeoJSON 等 GIS 数据，具体取决于下载接口。
 
@@ -729,6 +784,8 @@ frame-level metadata、camera poses、paths 等存储在 `metadata.sqlite`；spl
 
 原始内容：高保真真实室内场景，提供 laser scans、DSLR images、iPhone RGB-D、mesh、semantic/instance annotations、point clouds、panocam 等。
 
+Metadata：profile=indoor_multisensor_recon；domain=真实室内扫描；modalities=RGB:原生, depth:原生, sem2d:原生/可导出, pose:多约定原生, pointcloud:原生, pc_sem:原生, text:无, gs:无；geometry=mesh/COLMAP/Nerfstudio；convention=COLMAP/OpenCV + Nerfstudio/OpenGL + iPhone轨迹；access=agreement_required/需确认；risk=多相机约定并存、scene graph导出和对齐。
+
 格式/目录：当前官方文档说明数据集约 1006 scenes；目录包括 `split/`、`metadata/`、`data/<scene_id>/scans`、`dslr`、`iphone`、`panocam`。`scans` 下有 `pc_aligned.ply`、`mesh_aligned_0.05_semantic.ply`、`segments.json`、`segments_anno.json`；`dslr/colmap` 有 `cameras.txt/images.txt/points3D.txt`；`dslr/nerfstudio` 有 `transforms.json`；`iphone` 有 `rgb.mkv`、`depth.bin`/depth PNG、`pose_intrinsic_imu.json`。
 
 目标转换：优先使用 DSLR undistorted + COLMAP metric poses 构建高质量 RGB+pose；用 mesh 渲染 high-res depth；iPhone RGB-D 可作为低分辨率 depth source；semantic mesh 可投影到 2D 生成 semantic/instance masks。场景语义图可由 segments/object annotations 构建。
@@ -743,6 +800,8 @@ frame-level metadata、camera poses、paths 等存储在 `metadata.sqlite`；spl
 - https://huggingface.co/datasets/spatialverse/InteriorAgent
 
 原始内容：高质量 USD/USDa 室内场景资产，面向 NVIDIA Isaac Sim。提供 materials、meshes、lighting、floorplan、room metadata，适用于导航、操作、布局理解。
+
+Metadata：profile=usd_scene_asset；domain=合成室内仿真资产；modalities=RGB:渲染生成, depth:渲染生成, sem2d:metadata渲染, pose:采样生成, pointcloud:资产采样, pc_sem:metadata映射, text:scene description原生, gs:无；geometry=USD原生；convention=USD/Isaac Sim坐标；access=public/需确认；risk=USD材质/物理属性和仿真版本兼容。
 
 格式/目录：每个 scene 目录结构示例：
 
@@ -773,6 +832,8 @@ kujiale_xxxx/
 
 原始内容：室内 3D Gaussian Splatting 场景，带语义标注和空间占用信息。用户给出的 HF 数据是将 InteriorGS compressed PLY 转换为 USDZ 的版本，面向 Isaac Sim/Omniverse。
 
+Metadata：profile=gaussian_indoor_scene；domain=室内Gaussian场景；modalities=RGB:预览/可渲染, depth:渲染生成, sem2d:labels渲染, pose:采样生成, pointcloud:GS转换可选, pc_sem:object labels映射, text:无, gs:原生；geometry=USDZ/structure metadata；convention=3DGS/USdz坐标需确认；access=gated/需接受条件；risk=GS渲染器、occupancy/labels对齐和访问条件。
+
 格式/目录：HF USDZ 版本结构非常简单：
 
 ```text
@@ -797,6 +858,8 @@ InteriorGS_usdz/
 
 原始内容：TabletopGen 生成的预制 3D 桌面场景和机器人 manipulation demo assets，面向文本/单图到可交互 3D tabletop scene。
 
+Metadata：profile=tabletop_asset_scene；domain=桌面操作场景；modalities=RGB:渲染生成, depth:渲染生成, sem2d:渲染生成, pose:采样生成, pointcloud:mesh采样, pc_sem:asset id映射, text:任务/配置元数据, gs:无；geometry=GLB原生；convention=Isaac Sim/GLB坐标；access=public；risk=场景资产与manipulation demo代码分离。
+
 格式/目录：HF 数据集说明：
 
 ```text
@@ -816,6 +879,8 @@ manipulation_demo/    # Isaac Sim pick-and-place demo code/assets
 
 原始内容：按用户描述，是室内外 mesh 场景，包含奇特场景，如宫殿、货船等。
 
+Metadata：profile=custom_dcc_scene；domain=自定义三维场景；modalities=RGB:渲染生成, depth:渲染生成, sem2d:对象ID/材质渲染, pose:采样生成, pointcloud:mesh采样, pc_sem:对象层级映射, text:需人工补充, gs:无/需转换；geometry=DCC/mesh原生；convention=Maya坐标/单位需人工确认；access=unknown；risk=缺官方数据集身份和schema。
+
 格式/目录：无法从官方来源确认。可能是 Maya/Autodesk 格式资产、`.ma/.mb`、或某个内部数据集的名称。
 
 目标转换：如果是 `.ma/.mb`，需要 Maya/Blender/Assimp 可读转换链；如果是 `.fbx/.obj/.glb`，可走通用 MeshAdapter。转换为前馈数据集必须渲染 RGB-D/pose。
@@ -832,6 +897,8 @@ manipulation_demo/    # Isaac Sim pick-and-place demo code/assets
 
 原始内容：高分辨率卫星图像 + 细粒度 instance-level road structure annotations。覆盖多国多城市，并与 nuScenes/Argoverse2 等自动驾驶区域有对齐关系。
 
+Metadata：profile=geo_vector_map；domain=遥感道路地图；modalities=RGB:卫星图原生, depth:无, sem2d:polyline/attribute原生, pose:地理配准非相机, pointcloud:无, pc_sem:无, text:属性表, gs:无；geometry=vector polylines；convention=tile level/CRS/像素地理映射；access=public；risk=矢量属性、mask栅格化和地图坐标对齐。
+
 格式/目录：官方说明包含 OpenSatMap19 与 OpenSatMap20：level 19 约 0.3 m/pixel，level 20 约 0.15 m/pixel。标注对象包括 lane line、curb、virtual line，并提供八类属性，如颜色、线型、线数、特殊功能、边界、遮挡、清晰度等。标注以 vectorized polylines 表示，同时可能提供 mask。
 
 目标转换：不属于普通相机多视图 3D 数据，但可转为遥感地图任务格式。RGB satellite image 写入 `rgb/overhead`；polyline 写入 `annotations/map_polylines.geojson/json`；mask 写入 `semantic/`。若与 nuScenes/Argoverse 对齐，可建立 global map prior。
@@ -846,6 +913,8 @@ manipulation_demo/    # Isaac Sim pick-and-place demo code/assets
 - https://github.com/rilab314/SatelliteLaneDataset2024
 
 原始内容：韩国首尔/仁川卫星道路标注数据，包含 image-label pairs，也提供 COCO form 和 ADE20K form。用户表格说明包含大量车道线和路面符号标注。
+
+Metadata：profile=geo_road_segmentation；domain=遥感道路地图；modalities=RGB:image原生, depth:无, sem2d:COCO/ADE20K原生, pose:地理配准非相机, pointcloud:无, pc_sem:无, text:属性/类别表, gs:无；geometry=shapefile/vector源；convention=NGII shapefile到image alignment；access=public；risk=矢量到栅格转换链路和类别映射。
 
 格式/目录：仓库给出的目录：
 
@@ -879,6 +948,8 @@ datasets/
 
 原始内容：Articraft 是 agentic articulated 3D asset generation 系统；Articraft-10K 包含 10K+ articulated 3D assets，覆盖日常物体类别。每个资产由程序生成，输出 URDF、3D meshes、semantic parts、articulated joints、joint axes 与 motion ranges。
 
+Metadata：profile=articulated_asset_bank；domain=可动3D物体；modalities=RGB:渲染生成, depth:渲染生成, sem2d:渲染生成, pose:采样生成, pointcloud:URDF/mesh采样, pc_sem:link/joint映射, text:类别/生成元数据, gs:无；geometry=URDF原生；convention=URDF joint/link frame；access=public/需确认；risk=关节限制、collision mesh和材质层级。
+
 格式/目录：仓库采用 code-first records，`data/records/**` 通过 Git LFS 按需 hydrate。每条记录可能包含 `model.py`、metadata、生成结果和可视化资产。执行 record 需要运行 Python 代码。
 
 目标转换：若目标是仿真/具身任务，应保留 URDF、关节、part semantics 到 `annotations/articulation.json`。若目标是前馈三维训练，需要按关节状态采样多个 articulation configurations，并渲染多视图 RGB-D/mask/part segmentation。
@@ -896,6 +967,8 @@ datasets/
 
 原始内容：大规模交互式室内场景数据，包含 10,000 diverse scenes、50 room types/styles、565K generated 3D objects。面向 Isaac Sim、embodied AI、physics-based simulation。
 
+Metadata：profile=interactive_indoor_asset；domain=交互式室内场景；modalities=RGB:preview/渲染生成, depth:渲染生成, sem2d:asset id渲染, pose:采样生成, pointcloud:mesh采样, pc_sem:object metadata映射, text:layout metadata, gs:无；geometry=objects/materials/layout原生；convention=Isaac Sim/scene layout坐标；access=public/需确认；risk=assets/materials/layout路径闭环和仿真版本。
+
 格式/目录：官方仓库包含 `client/`、`server/`、`IsaacLab/`、`M2T2/`、`assets/`、`robomimic/` 等；SAGE-10k 数据集位于 Hugging Face。scene 通常是 simulation-ready scene assets/configs。
 
 目标转换：和 InteriorAgent 类似，属于 simulation scene-first 数据集。用 Isaac Sim RenderAgent 渲染 RGB-D/semantic/instance/normal/pose；保留 scene config、object metadata、room/task 信息。若包含机器人动作数据，可写入 `annotations/embodied_tasks.jsonl`。
@@ -911,6 +984,8 @@ datasets/
 - https://registry.opendata.aws/kitti/
 
 原始内容：真实自动驾驶数据，包含 stereo cameras、Velodyne LiDAR、GPS/IMU localization。任务覆盖 stereo、optical flow、visual odometry、3D object detection/tracking、road/semantic 等。
+
+Metadata：profile=driving_stereo_lidar_sequence；domain=真实道路驾驶；modalities=RGB:原生, depth:LiDAR投影派生, sem2d:检测/分割任务可用, pose:GPS/IMU原生, pointcloud:Velodyne原生, pc_sem:3D boxes/任务标注, text:无, gs:无；geometry=无；convention=calib/oxts/camera/Velodyne坐标链；access=public；risk=benchmark版本差异、calib解析和LiDAR投影稀疏性。
 
 格式/目录：不同 benchmark 目录不同。Raw/odometry 常见内容包括：
 
@@ -937,6 +1012,8 @@ poses/<seq>.txt   # odometry benchmark
 
 原始内容：大规模自动驾驶数据，包含 320K+ images、100K laser scans、73.7 km driving distance、准确地理定位、2D/3D dense semantic & instance annotations。
 
+Metadata：profile=driving_multicamera_mapping；domain=真实道路建图；modalities=RGB:原生, depth:LiDAR/SICK派生, sem2d:原生, pose:原生, pointcloud:原生, pc_sem:3D语义/标注可用, text:无, gs:无；geometry=无；convention=perspective/fisheye/Velodyne/SICK多坐标；access=public/需注册确认；risk=多相机模型、跨帧实例ID和语义格式。
+
 格式/目录：常见目录包括 perspective/fisheye cameras、Velodyne scans、SICK scans、calibration、poses、3D bounding boxes、semantic/instance labels 等。官方说明所有帧准确 geolocalized，语义定义与 Cityscapes 一致，实例 ID 跨帧一致。
 
 目标转换：适合高优先级构建多相机/长序列前馈数据。读取 calibration 和 poses，生成每个 camera 的 `T_c2w`；LiDAR/semantic point cloud 写入 `point_clouds`；2D/3D semantics 写 annotations；temporal、stereo、loop pairs 可全部构建。
@@ -953,6 +1030,8 @@ poses/<seq>.txt   # odometry benchmark
 
 原始内容：真实自动驾驶 NVS/scene reconstruction 数据集，包含 101 scenes，每个 scene 20 秒，5 个 time-synchronised cameras，10 FPS，共约 101,000 images，并提供 camera poses、held-out evaluation camera、scene-level metadata。
 
+Metadata：profile=driving_nvs_sequence；domain=真实道路驾驶；modalities=RGB:多相机原生, depth:无/可估计, sem2d:无, pose:原生, pointcloud:无, pc_sem:无, text:无, gs:可训练生成/非原生；geometry=无；convention=Nerfstudio/NVS camera schema需样本确认；access=public/需确认；risk=无GT几何、仅适合NVS/重建评测。
+
 格式/目录：官方仓库面向 NerfStudio/NVS 使用，包含 high-resolution images、camera poses、metadata、evaluation split。具体下载后的目录需样本确认。
 
 目标转换：直接转为 driving multiview NVS/front-feed 数据。5 相机同步帧可构建 cross-camera pairs；10 FPS temporal frames 可构建 temporal pairs；held-out camera 应进入 test/novel-view split，不参与训练。
@@ -968,6 +1047,8 @@ poses/<seq>.txt   # odometry benchmark
 - https://github.com/waymo-research/waymo-open-dataset
 
 原始内容：真实自动驾驶大规模多传感器数据。官方仓库说明包含 Perception dataset、Motion dataset、End-To-End Driving dataset；Perception 提供高分辨率传感器数据和多任务 labels，Motion 提供 103,354 scenes 的 object trajectories 和 3D maps。
+
+Metadata：profile=driving_multisensor_sequence；domain=真实道路驾驶；modalities=RGB:原生, depth:LiDAR投影派生, sem2d:2D框/panoptic可用, pose:vehicle/sensor原生, pointcloud:LiDAR原生, pc_sem:3D框/分割任务可用, text:无, gs:无；geometry=无；convention=vehicle/global/sensor + TFRecord/Proto；access=public/需注册；risk=Proto读取、组件版本和KITTI-like预转换信息损失。
 
 格式/目录：Waymo 经典版本使用 sharded TFRecord + protocol buffer；v2 系列还有组件化表/列式数据。常见 converter 会先把 Waymo 转成 KITTI-style 或自定义中间格式。
 
