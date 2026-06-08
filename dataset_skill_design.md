@@ -294,17 +294,20 @@ Metadata：
 {
   "profile": "rendered_indoor_scene",
   "domain": "室内合成场景",
+  "storage": {
+    "summary": "json + mesh + texture; CAD/mesh原生",
+    "unit": "house/flat scene"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "渲染生成",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "实例映射",
     "text": "无",
     "gs": "无"
   },
-  "geometry": "CAD/mesh原生",
   "convention": "Blender/asset坐标需确认",
   "access": "public/需确认",
   "risk": "JSON到3D-FUTURE资产映射、单位和材质缺失"
@@ -319,7 +322,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 114. Aria Synthetic Environments
+### 114. Aria Synthetic Environments **
 
 官方/主要参考：
 - https://www.projectaria.com/datasets/ase/
@@ -333,6 +336,10 @@ Metadata：
 {
   "profile": "rgbd_sequence",
   "domain": "室内合成场景",
+  "storage": {
+    "summary": "jpg + png + txt + csv.gz + json",
+    "unit": "scene trajectory"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "ray_distance_mm原生",
@@ -343,7 +350,6 @@ Metadata：
     "text": "scene_language原生",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "fisheye + ray depth",
   "access": "public",
   "risk": "不能把fisheye/ray depth当作pinhole/z-depth"
@@ -372,7 +378,7 @@ RGB 为 fisheye JPEG，通常 10 FPS；depth 为 16-bit PNG，单位为毫米，
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 115. ARKitScenes
+### 115. ARKitScenes **
 
 官方/主要参考：
 - https://github.com/apple/ARKitScenes
@@ -386,6 +392,10 @@ Metadata：
 {
   "profile": "indoor_rgbd_scan",
   "domain": "真实室内扫描",
+  "storage": {
+    "summary": "png + traj + pincam + json + ply + mov + txt; mesh原生",
+    "unit": "scan/scene"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "原生",
@@ -396,7 +406,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh原生",
   "convention": "ARKit pose/单位需样本确认",
   "access": "public",
   "risk": "子集字段差异、pose缺失、confidence过滤"
@@ -411,7 +420,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 116. BDD100K
+### 116. BDD100K ***
 
 官方/主要参考：
 - https://bair.berkeley.edu/blog/2018/05/30/bdd/
@@ -425,6 +434,10 @@ Metadata：
 {
   "profile": "driving_2d_perception",
   "domain": "真实道路驾驶",
+  "storage": {
+    "summary": "jpg + mov + json + png",
+    "unit": "image/video frame"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "无",
@@ -435,7 +448,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "2D image task schema",
   "access": "public/需注册确认",
   "risk": "不能伪装几何真值，视频和标注同步需确认"
@@ -459,7 +471,7 @@ labels 多为 JSON；`images/100k` 通常是从视频抽取的关键帧；不同
 
 建议：构建前馈数据集：是，但属于 RGB/2D 标注型。优先级：高。
 
-### 117. BlendedMVS / BlendMVS
+### 117. BlendedMVS / BlendMVS ***
 
 官方/主要参考：
 - https://github.com/YoYo000/BlendedMVS
@@ -472,6 +484,10 @@ Metadata：
 {
   "profile": "multiview_mvs",
   "domain": "多视图重建场景",
+  "storage": {
+    "summary": "jpg + pfm + txt; 相机+深度/pair",
+    "unit": "MVS scene"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "pfm原生",
@@ -482,7 +498,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "相机+深度/pair",
   "convention": "MVSNet world-to-camera常见",
   "access": "public",
   "risk": "外参方向和depth range解析"
@@ -524,6 +539,10 @@ Metadata：
 {
   "profile": "object_multiview_sequence",
   "domain": "真实物体中心序列",
+  "storage": {
+    "summary": "jpg + png + jgz + json + ply; point cloud原生",
+    "unit": "category/sequence/frame"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "原生",
@@ -531,10 +550,9 @@ Metadata：
     "pose": "原生",
     "pointcloud": "原生",
     "pointcloud_semantic": "类别级弱语义",
-    "text": "类别元数据",
+    "text": "类别元数据(非caption)",
     "gs": "无"
   },
-  "geometry": "point cloud原生",
   "convention": "PyTorch3D/CO3D camera需归一",
   "access": "public",
   "risk": "v1/v2结构差异和mask/depth有效性"
@@ -578,20 +596,23 @@ Metadata：
 {
   "profile": "scene_multiview_recon",
   "domain": "真实多视图场景",
+  "storage": {
+    "summary": "mp4 + jpg + json + txt + bin + ply; RGB/video + calibrated poses + COLMAP/Nerfstudio-style outputs",
+    "unit": "scene/video/frame"
+  },
   "modalities": {
     "rgb": "原生",
-    "depth": "重建派生/非GT",
+    "depth": "派生(重建深度/非GT)",
     "sem2d": "scene label非像素级",
     "pose": "原生",
-    "pointcloud": "COLMAP可导出",
+    "pointcloud": "派生(COLMAP点云)",
     "pointcloud_semantic": "无",
     "text": "human scene labels",
-    "gs": "原生/benchmark"
+    "gs": "benchmark/可训练生成"
   },
-  "geometry": "Nerfstudio/3DGS/COLMAP",
   "convention": "Nerfstudio/OpenGL与COLMAP需区分",
   "access": "public/需确认",
-  "risk": "视频抽帧、相机约定和重建产物对齐"
+  "risk": "视频抽帧、相机约定、下载包是否含3DGS需样本确认"
 }
 ```
 
@@ -634,17 +655,20 @@ Metadata：
 {
   "profile": "rendered_indoor_mesh",
   "domain": "真实室内mesh资产",
+  "storage": {
+    "summary": "glb + obj + mtl + texture + semantic metadata; mesh原生",
+    "unit": "Habitat scene asset"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "语义版可渲染",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "语义版映射",
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh原生",
   "convention": "Habitat坐标/语义版本需确认",
   "access": "agreement_required/token",
   "risk": "下载门槛、语义版差异和相机采样有效性"
@@ -659,7 +683,7 @@ Metadata：
 
 建议：构建前馈数据集：是，但需渲染。优先级：中。
 
-### 121. Hypersim
+### 121. Hypersim *
 
 官方/主要参考：
 - https://github.com/apple/ml-hypersim
@@ -672,17 +696,20 @@ Metadata：
 {
   "profile": "indoor_synthetic_fullmodal",
   "domain": "合成室内场景",
+  "storage": {
+    "summary": "csv + hdf5 + tonemap jpg/png; mesh/object metadata",
+    "unit": "scene/camera/frame"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "meters原生",
     "sem2d": "原生",
     "pose": "原生",
-    "pointcloud": "position/depth生成",
+    "pointcloud": "派生(position/depth)",
     "pointcloud_semantic": "语义对齐",
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh/object metadata",
   "convention": "asset units到meters + camera convention",
   "access": "public",
   "risk": "HDF5体量、官方过滤列表和单位换算"
@@ -697,7 +724,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中。
 
-### 122. Matterport3D
+### 122. Matterport3D *
 
 官方/主要参考：
 - https://niessner.github.io/Matterport/
@@ -711,17 +738,20 @@ Metadata：
 {
   "profile": "indoor_rgbd_mesh",
   "domain": "真实室内建筑",
+  "storage": {
+    "summary": "jpg + png + pose + ply + obj + json + house metadata; mesh原生",
+    "unit": "building/region/panorama/view"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "原生",
     "sem2d": "原生/可导出",
     "pose": "原生",
-    "pointcloud": "RGB-D/mesh生成",
+    "pointcloud": "派生(RGB-D融合/mesh采样)",
     "pointcloud_semantic": "region/object语义",
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh原生",
   "convention": "panorama/local view/mesh坐标需统一",
   "access": "agreement_required",
   "risk": "许可、全景相机模型和多坐标系对齐"
@@ -749,6 +779,10 @@ Metadata：
 {
   "profile": "internet_photo_depth_sfm",
   "domain": "室外地标/建筑",
+  "storage": {
+    "summary": "jpg + h5/npy/pfm + COLMAP + SfM metadata; COLMAP/SfM",
+    "unit": "photo collection/image"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "预处理原生",
@@ -759,7 +793,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "COLMAP/SfM",
   "convention": "COLMAP/OpenCV常见但来源需记录",
   "access": "public/镜像差异",
   "risk": "版本分散、pose/depth是否官方GT不稳定"
@@ -788,6 +821,10 @@ Metadata：
 {
   "profile": "object_multiview_colmap",
   "domain": "真实物体多视图",
+  "storage": {
+    "summary": "jpg + png mask + COLMAP bin + point cloud; COLMAP稀疏模型",
+    "unit": "category/object/view"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "无/可估计",
@@ -795,10 +832,9 @@ Metadata：
     "pose": "COLMAP原生",
     "pointcloud": "稀疏点原生",
     "pointcloud_semantic": "类别/实例级",
-    "text": "类别标签",
+    "text": "类别标签(非caption)",
     "gs": "无"
   },
-  "geometry": "COLMAP稀疏模型",
   "convention": "COLMAP/OpenCV",
   "access": "gated/form",
   "risk": "下载门槛、子集不一致和mask可用性"
@@ -826,6 +862,10 @@ Metadata：
 {
   "profile": "object_multiview_colmap_dense",
   "domain": "真实物体多视图",
+  "storage": {
+    "summary": "image + mask + SfM pose + dense point cloud; SfM/点云",
+    "unit": "category/object/view"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "无/可估计",
@@ -833,10 +873,9 @@ Metadata：
     "pose": "SfM原生",
     "pointcloud": "dense原生",
     "pointcloud_semantic": "类别/实例级",
-    "text": "类别标签",
+    "text": "类别标签(非caption)",
     "gs": "无"
   },
-  "geometry": "SfM/点云",
   "convention": "SfM/OpenCV需确认",
   "access": "gated/需确认",
   "risk": "与MVImgNet版本差异和dense点云尺度"
@@ -851,7 +890,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 126. nuScenes
+### 126. nuScenes ***
 
 官方/主要参考：
 - https://www.nuscenes.org/nuscenes
@@ -865,17 +904,20 @@ Metadata：
 {
   "profile": "driving_multisensor_sequence",
   "domain": "真实城市驾驶",
+  "storage": {
+    "summary": "json tables + jpg + pcd/bin + map files",
+    "unit": "scene/sample/sample_data"
+  },
   "modalities": {
     "rgb": "原生",
-    "depth": "LiDAR投影派生",
+    "depth": "派生(LiDAR投影)",
     "sem2d": "2D框/分割可用",
     "pose": "ego/sensor原生",
     "pointcloud": "LiDAR/Radar原生",
     "pointcloud_semantic": "lidarseg/panoptic可选",
-    "text": "scene metadata",
+    "text": "scene metadata(非caption)",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "global/ego/sensor链路",
   "access": "public/需注册",
   "risk": "token关系表、时间同步和坐标链路"
@@ -910,17 +952,20 @@ Metadata：
 {
   "profile": "asset_bank",
   "domain": "物体资产",
+  "storage": {
+    "summary": "api metadata + glb + gltf + obj + fbx + usd; mesh多格式原生",
+    "unit": "object asset UID"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "asset id渲染",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "metadata弱映射",
-    "text": "metadata/tags",
+    "text": "metadata/tags(非caption)",
     "gs": "无"
   },
-  "geometry": "mesh多格式原生",
   "convention": "asset坐标/尺度需归一",
   "access": "mixed_license",
   "risk": "逐对象license、可渲染性和格式清洗"
@@ -948,6 +993,10 @@ Metadata：
 {
   "profile": "video_text_pretrain",
   "domain": "开放域视频",
+  "storage": {
+    "summary": "csv + json + mp4 + zip shards",
+    "unit": "video/caption record"
+  },
   "modalities": {
     "rgb": "视频帧原生",
     "depth": "无",
@@ -958,7 +1007,6 @@ Metadata：
     "text": "caption原生",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "video fps/resolution schema",
   "access": "public/需确认",
   "risk": "仅能作为弱监督/预训练，几何标签需标注为pseudo"
@@ -973,7 +1021,7 @@ Metadata：
 
 建议：构建前馈数据集：可选，主要做文本/视频预训练。优先级：低到中。
 
-### 129. Replica
+### 129. Replica **
 
 官方/主要参考：
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replica-dataset
@@ -987,17 +1035,20 @@ Metadata：
 {
   "profile": "rendered_semantic_mesh",
   "domain": "真实室内重建",
+  "storage": {
+    "summary": "ply + json + texture + habitat export + navmesh; mesh原生",
+    "unit": "scene asset"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "语义mesh渲染",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "原生语义映射",
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh原生",
   "convention": "Habitat/mesh坐标",
   "access": "public",
   "risk": "渲染采样、语义映射和Habitat导出版本"
@@ -1012,7 +1063,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 130. ReplicaCAD
+### 130. ReplicaCAD **
 
 官方/主要参考：
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replicacad
@@ -1025,17 +1076,20 @@ Metadata：
 {
   "profile": "interactive_sim_scene",
   "domain": "室内交互仿真",
+  "storage": {
+    "summary": "scene config + glb + urdf + navmesh + object config; GLB/URDF/navmesh原生",
+    "unit": "interactive scene"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "渲染生成",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "object metadata映射",
-    "text": "配置元数据",
+    "text": "配置元数据(非caption)",
     "gs": "无"
   },
-  "geometry": "GLB/URDF/navmesh原生",
   "convention": "Habitat scene dataset config",
   "access": "public",
   "risk": "刚体/关节体/navmesh/receptacle元数据不能丢"
@@ -1050,7 +1104,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 131. ScanNet v2
+### 131. ScanNet v2 *
 
 官方/主要参考：
 - https://www.scan-net.org/
@@ -1064,6 +1118,10 @@ Metadata：
 {
   "profile": "indoor_rgbd_semantic_scan",
   "domain": "真实室内扫描",
+  "storage": {
+    "summary": "sens + ply + json + zip + txt; mesh原生",
+    "unit": "scan scene"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "原生",
@@ -1074,7 +1132,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh原生",
   "convention": "ScanNet sensor/mesh坐标",
   "access": "agreement_required",
   "risk": ".sens解包、2D/3D标注对齐和许可"
@@ -1102,17 +1159,20 @@ Metadata：
 {
   "profile": "synthetic_mvd_regression",
   "domain": "合成多视图场景",
+  "storage": {
+    "summary": "RobustMVD records + image + depth + pose + intrinsics",
+    "unit": "MVD sample"
+  },
   "modalities": {
     "rgb": "原生/转换后",
     "depth": "原生/转换后",
     "sem2d": "无",
     "pose": "原生/转换后",
-    "pointcloud": "depth生成",
+    "pointcloud": "派生(depth反投影)",
     "pointcloud_semantic": "无",
     "text": "无",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "RobustMVD schema",
   "access": "public/需下载源确认",
   "risk": "转换目录结构和无效depth处理"
@@ -1140,6 +1200,10 @@ Metadata：
 {
   "profile": "object_video_fullmodal",
   "domain": "真实物体中心序列",
+  "storage": {
+    "summary": "sqlite + mp4 + mkv + h5 + ply + gaussian_splats; point cloud/GS",
+    "unit": "category/sequence/frame"
+  },
   "modalities": {
     "rgb": "视频原生",
     "depth": "H5原生",
@@ -1150,7 +1214,6 @@ Metadata：
     "text": "caption原生",
     "gs": "原生"
   },
-  "geometry": "point cloud/GS",
   "convention": "uCO3D sqlite/video时间轴",
   "access": "public",
   "risk": "sqlite索引、视频帧同步和多模态路径解析"
@@ -1194,17 +1257,20 @@ Metadata：
 {
   "profile": "object_asset_rgbd",
   "domain": "物体资产",
+  "storage": {
+    "summary": "rgbd capture + mesh + glb + json config + calibration; mesh/GLB原生",
+    "unit": "object asset/capture sequence"
+  },
   "modalities": {
     "rgb": "扫描原生/渲染生成",
     "depth": "扫描原生/渲染生成",
     "sem2d": "渲染生成",
     "pose": "采样/标定生成",
-    "pointcloud": "扫描/mesh采样",
+    "pointcloud": "原生扫描/派生(mesh采样)",
     "pointcloud_semantic": "object id映射",
-    "text": "object metadata",
+    "text": "object metadata(非caption)",
     "gs": "无"
   },
-  "geometry": "mesh/GLB原生",
   "convention": "object frame/renderer frame需统一",
   "access": "public",
   "risk": "原始YCB与Habitat版字段不同"
@@ -1233,6 +1299,10 @@ Metadata：
 {
   "profile": "geo_polygon_height",
   "domain": "遥感地理建筑",
+  "storage": {
+    "summary": "shapefile + GeoPackage + GeoJSON + raster; 3D footprint polygons",
+    "unit": "geospatial tile/city region"
+  },
   "modalities": {
     "rgb": "无",
     "depth": "无",
@@ -1240,10 +1310,9 @@ Metadata：
     "pose": "地理坐标非相机",
     "pointcloud": "无",
     "pointcloud_semantic": "无",
-    "text": "属性表",
+    "text": "属性表(非caption)",
     "gs": "无"
   },
-  "geometry": "3D footprint polygons",
   "convention": "CRS/地理坐标",
   "access": "public",
   "risk": "CRS、tile范围和height单位"
@@ -1273,6 +1342,10 @@ Metadata：
 {
   "profile": "indoor_multisensor_recon",
   "domain": "真实室内扫描",
+  "storage": {
+    "summary": "ply + json + COLMAP txt + Nerfstudio json + mkv + bin + png; mesh/COLMAP/Nerfstudio",
+    "unit": "scene/sensor stream/frame"
+  },
   "modalities": {
     "rgb": "原生",
     "depth": "原生",
@@ -1283,7 +1356,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "mesh/COLMAP/Nerfstudio",
   "convention": "COLMAP/OpenCV + Nerfstudio/OpenGL + iPhone轨迹",
   "access": "agreement_required/需确认",
   "risk": "多相机约定并存、scene graph导出和对齐"
@@ -1311,17 +1383,20 @@ Metadata：
 {
   "profile": "usd_scene_asset",
   "domain": "合成室内仿真资产",
+  "storage": {
+    "summary": "usd + material files + scene description + physics geometry; USD原生",
+    "unit": "USD scene asset"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "metadata渲染",
     "pose": "采样生成",
-    "pointcloud": "资产采样",
+    "pointcloud": "派生(资产采样)",
     "pointcloud_semantic": "metadata映射",
     "text": "scene description原生",
     "gs": "无"
   },
-  "geometry": "USD原生",
   "convention": "USD/Isaac Sim坐标",
   "access": "public/需确认",
   "risk": "USD材质/物理属性和仿真版本兼容"
@@ -1363,17 +1438,20 @@ Metadata：
 {
   "profile": "gaussian_indoor_scene",
   "domain": "室内Gaussian场景",
+  "storage": {
+    "summary": "usdz + ply gaussian + json + png; USDZ/structure metadata",
+    "unit": "Gaussian scene"
+  },
   "modalities": {
     "rgb": "预览/可渲染",
     "depth": "渲染生成",
     "sem2d": "labels渲染",
     "pose": "采样生成",
-    "pointcloud": "GS转换可选",
+    "pointcloud": "派生(GS转换可选)",
     "pointcloud_semantic": "object labels映射",
     "text": "无",
     "gs": "原生"
   },
-  "geometry": "USDZ/structure metadata",
   "convention": "3DGS/USdz坐标需确认",
   "access": "gated/需接受条件",
   "risk": "GS渲染器、occupancy/labels对齐和访问条件"
@@ -1410,17 +1488,20 @@ Metadata：
 {
   "profile": "tabletop_asset_scene",
   "domain": "桌面操作场景",
+  "storage": {
+    "summary": "glb + Isaac Sim demo code + asset metadata; GLB原生",
+    "unit": "tabletop scene asset"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "渲染生成",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "asset id映射",
-    "text": "任务/配置元数据",
+    "text": "任务/配置元数据(非caption)",
     "gs": "无"
   },
-  "geometry": "GLB原生",
   "convention": "Isaac Sim/GLB坐标",
   "access": "public",
   "risk": "场景资产与manipulation demo代码分离"
@@ -1440,32 +1521,35 @@ manipulation_demo/    # Isaac Sim pick-and-place demo code/assets
 
 建议：构建前馈数据集：是。优先级：中。
 
-### 247. Maya
+### 247. Maya **
 
 官方/主要参考：用户表格未提供 URL。
 
-原始内容：按用户描述，是室内外 mesh 场景，包含奇特场景，如宫殿、货船等。
+原始内容：按用户描述，是室内外 mesh 场景，包含奇特场景，如宫殿、货船等。现阶段它不是可唯一识别的公开 benchmark，只能作为自定义 DCC 场景源占位。
 
 Metadata：
 
 ```json
 {
-  "profile": "custom_dcc_scene",
-  "domain": "自定义三维场景",
+  "profile": "custom_dcc_scene_placeholder",
+  "domain": "自定义三维场景占位",
+  "storage": {
+    "summary": "ma/mb + mesh exports + textures + custom metadata; DCC/mesh原生",
+    "unit": "custom DCC scene"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "对象ID/材质渲染",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "对象层级映射",
     "text": "需人工补充",
     "gs": "无/需转换"
   },
-  "geometry": "DCC/mesh原生",
   "convention": "Maya坐标/单位需人工确认",
   "access": "unknown",
-  "risk": "缺官方数据集身份和schema"
+  "risk": "不是可唯一识别的公开benchmark；缺官方数据集身份和schema"
 }
 ```
 
@@ -1491,6 +1575,10 @@ Metadata：
 {
   "profile": "geo_vector_map",
   "domain": "遥感道路地图",
+  "storage": {
+    "summary": "satellite image + vector polyline + mask + attribute table; vector polylines",
+    "unit": "map tile/line instance"
+  },
   "modalities": {
     "rgb": "卫星图原生",
     "depth": "无",
@@ -1498,10 +1586,9 @@ Metadata：
     "pose": "地理配准非相机",
     "pointcloud": "无",
     "pointcloud_semantic": "无",
-    "text": "属性表",
+    "text": "属性表(非caption)",
     "gs": "无"
   },
-  "geometry": "vector polylines",
   "convention": "tile level/CRS/像素地理映射",
   "access": "public",
   "risk": "矢量属性、mask栅格化和地图坐标对齐"
@@ -1529,6 +1616,10 @@ Metadata：
 {
   "profile": "geo_road_segmentation",
   "domain": "遥感道路地图",
+  "storage": {
+    "summary": "image + COCO json + ADE20K mask + shapefile + coordinate list; shapefile/vector源",
+    "unit": "satellite image/label pair"
+  },
   "modalities": {
     "rgb": "image原生",
     "depth": "无",
@@ -1536,10 +1627,9 @@ Metadata：
     "pose": "地理配准非相机",
     "pointcloud": "无",
     "pointcloud_semantic": "无",
-    "text": "属性/类别表",
+    "text": "属性/类别表(非caption)",
     "gs": "无"
   },
-  "geometry": "shapefile/vector源",
   "convention": "NGII shapefile到image alignment",
   "access": "public",
   "risk": "矢量到栅格转换链路和类别映射"
@@ -1569,7 +1659,7 @@ datasets/
 
 建议：构建前馈数据集：否，除非目标是地图/遥感语义。优先级：中。
 
-### 293. Articraft-10K
+### 293. Articraft-10K **
 
 官方/主要参考：
 - https://articraft3d.github.io/
@@ -1584,17 +1674,20 @@ Metadata：
 {
   "profile": "articulated_asset_bank",
   "domain": "可动3D物体",
+  "storage": {
+    "summary": "urdf + python record + mesh + metadata + visualization asset; URDF原生",
+    "unit": "articulated object record"
+  },
   "modalities": {
     "rgb": "渲染生成",
     "depth": "渲染生成",
     "sem2d": "渲染生成",
     "pose": "采样生成",
-    "pointcloud": "URDF/mesh采样",
+    "pointcloud": "派生(URDF/mesh采样)",
     "pointcloud_semantic": "link/joint映射",
-    "text": "类别/生成元数据",
+    "text": "类别/生成元数据(非caption)",
     "gs": "无"
   },
-  "geometry": "URDF原生",
   "convention": "URDF joint/link frame",
   "access": "public/需确认",
   "risk": "关节限制、collision mesh和材质层级"
@@ -1609,7 +1702,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 294. SAGE-10k
+### 294. SAGE-10k **
 
 官方/主要参考：
 - https://huggingface.co/datasets/nvidia/SAGE-10k
@@ -1624,17 +1717,20 @@ Metadata：
 {
   "profile": "interactive_indoor_asset",
   "domain": "交互式室内场景",
+  "storage": {
+    "summary": "scene config + object assets + materials + json layout + preview; objects/materials/layout原生",
+    "unit": "simulation-ready scene"
+  },
   "modalities": {
     "rgb": "preview/渲染生成",
     "depth": "渲染生成",
     "sem2d": "asset id渲染",
     "pose": "采样生成",
-    "pointcloud": "mesh采样",
+    "pointcloud": "派生(mesh采样)",
     "pointcloud_semantic": "object metadata映射",
-    "text": "layout metadata",
+    "text": "layout metadata(非caption)",
     "gs": "无"
   },
-  "geometry": "objects/materials/layout原生",
   "convention": "Isaac Sim/scene layout坐标",
   "access": "public/需确认",
   "risk": "assets/materials/layout路径闭环和仿真版本"
@@ -1649,7 +1745,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：中高。
 
-### 10146. KITTI
+### 10146. KITTI ***
 
 官方/主要参考：
 - https://www.cvlibs.net/datasets/kitti/
@@ -1663,9 +1759,13 @@ Metadata：
 {
   "profile": "driving_stereo_lidar_sequence",
   "domain": "真实道路驾驶",
+  "storage": {
+    "summary": "png + bin + txt + xml",
+    "unit": "drive/frame/sensor"
+  },
   "modalities": {
     "rgb": "原生",
-    "depth": "LiDAR投影派生",
+    "depth": "派生(LiDAR投影)",
     "sem2d": "检测/分割任务可用",
     "pose": "GPS/IMU原生",
     "pointcloud": "Velodyne原生",
@@ -1673,7 +1773,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "calib/oxts/camera/Velodyne坐标链",
   "access": "public",
   "risk": "benchmark版本差异、calib解析和LiDAR投影稀疏性"
@@ -1698,7 +1797,7 @@ poses/<seq>.txt   # odometry benchmark
 
 建议：构建前馈数据集：是。优先级：高。
 
-### 10147. KITTI-360
+### 10147. KITTI-360 ***
 
 官方/主要参考：
 - https://www.cvlibs.net/datasets/kitti-360/
@@ -1711,9 +1810,13 @@ Metadata：
 {
   "profile": "driving_multicamera_mapping",
   "domain": "真实道路建图",
+  "storage": {
+    "summary": "png + bin + txt + xml + pose + semantic labels",
+    "unit": "sequence/frame/sensor"
+  },
   "modalities": {
     "rgb": "原生",
-    "depth": "LiDAR/SICK派生",
+    "depth": "派生(LiDAR/SICK)",
     "sem2d": "原生",
     "pose": "原生",
     "pointcloud": "原生",
@@ -1721,7 +1824,6 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "无",
   "convention": "perspective/fisheye/Velodyne/SICK多坐标",
   "access": "public/需注册确认",
   "risk": "多相机模型、跨帧实例ID和语义格式"
@@ -1736,7 +1838,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：高。
 
-### 10148. Wayve / WayveScenes101
+### 10148. Wayve / WayveScenes101 ***
 
 官方/主要参考：
 - https://wayve.ai/science/wayvescenes101/
@@ -1750,6 +1852,10 @@ Metadata：
 {
   "profile": "driving_nvs_sequence",
   "domain": "真实道路驾驶",
+  "storage": {
+    "summary": "images + camera poses + metadata + Nerfstudio-style records",
+    "unit": "scene/camera/frame"
+  },
   "modalities": {
     "rgb": "多相机原生",
     "depth": "无/可估计",
@@ -1760,7 +1866,6 @@ Metadata：
     "text": "无",
     "gs": "可训练生成/非原生"
   },
-  "geometry": "无",
   "convention": "Nerfstudio/NVS camera schema需样本确认",
   "access": "public/需确认",
   "risk": "无GT几何、仅适合NVS/重建评测"
@@ -1775,7 +1880,7 @@ Metadata：
 
 建议：构建前馈数据集：是。优先级：高。
 
-### 10149. Waymo Open Dataset
+### 10149. Waymo Open Dataset ***
 
 官方/主要参考：
 - https://waymo.com/open/
@@ -1789,9 +1894,13 @@ Metadata：
 {
   "profile": "driving_multisensor_sequence",
   "domain": "真实道路驾驶",
+  "storage": {
+    "summary": "TFRecord + Protocol Buffer + v2 component tables + jpg + range image/point cloud",
+    "unit": "segment/frame/sensor"
+  },
   "modalities": {
     "rgb": "原生",
-    "depth": "LiDAR投影派生",
+    "depth": "派生(LiDAR投影)",
     "sem2d": "2D框/panoptic可用",
     "pose": "vehicle/sensor原生",
     "pointcloud": "LiDAR原生",
@@ -1799,10 +1908,9 @@ Metadata：
     "text": "无",
     "gs": "无"
   },
-  "geometry": "无",
-  "convention": "vehicle/global/sensor + TFRecord/Proto",
+  "convention": "classic=TFRecord/Proto；v2=component tables；vehicle/global/sensor坐标链",
   "access": "public/需注册",
-  "risk": "Proto读取、组件版本和KITTI-like预转换信息损失"
+  "risk": "版本差异、Proto读取、组件表读取和KITTI-like预转换信息损失"
 }
 ```
 
