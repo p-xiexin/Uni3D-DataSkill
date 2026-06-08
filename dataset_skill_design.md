@@ -286,6 +286,8 @@ Metadata 中的模态来源层级统一按以下含义使用：
 - https://arxiv.org/abs/2011.09127
 - https://dlr-rm.github.io/BlenderProc/examples/datasets/front_3d/README.html
 
+背景说明：3D-FRONT 由 Alibaba Group/Taobao 技术团队等研究者提出，并与 3D-FUTURE 家具资产体系配套使用。它最初服务于室内布局生成、家具摆放、场景合成和室内设计相关任务，目标是把专业设计房间转化为可计算、可渲染的数据源。后续它被 BlenderProc、室内 layout generation、文本驱动室内场景生成等工作反复使用，逐渐成为合成室内资产和布局研究中的基础数据之一。
+
 原始内容：合成室内家居场景。核心是房屋/房间布局 JSON，家具资产来自 3D-FUTURE，纹理来自 3D-FRONT-texture。论文说明该数据集包含大规模 furnished rooms、布局语义和高质量带纹理家具模型。
 
 Metadata：
@@ -327,6 +329,8 @@ Metadata：
 官方/主要参考：
 - https://www.projectaria.com/datasets/ase/
 - https://facebookresearch.github.io/projectaria_tools/docs/open_datasets/aria_synthetic_environments_dataset/ase_data_format
+
+背景说明：Aria Synthetic Environments 由 Meta Reality Labs Research / Project Aria 团队发布，背景是 Project Aria 眼镜形态设备需要大量可控、可标注的第一人称数据。它最初用于 AR 感知、定位、半稠密建图和室内场景理解，后续继续作为 Project Aria 开放数据生态的一部分，并被扩展到传感器仿真、合成 LiDAR 和 embodied/egocentric 感知研究中。
 
 原始内容：合成室内场景，提供 RGB、depth、instance segmentation、trajectory、scene language、semidense points/observations、object-to-class mapping。
 
@@ -384,6 +388,8 @@ RGB 为 fisheye JPEG，通常 10 FPS；depth 为 16-bit PNG，单位为毫米，
 - https://github.com/apple/ARKitScenes
 - https://github.com/apple/ARKitScenes/blob/main/DATA.md
 
+背景说明：ARKitScenes 由 Apple 机器学习研究团队发布，抓住了 iPhone/iPad LiDAR 开始普及后移动端 RGB-D 采集能力提升的时间点。数据集最初面向真实室内 3D scene understanding、3D object detection 和 color-guided depth upsampling，后续成为移动端 LiDAR 室内数据的重要基准，被室内 3D 标注、AR/机器人感知和 depth/mesh 学习工作持续复用。
+
 原始内容：真实室内 RGB-D 扫描。包括低/高分辨率 RGB、低/高分辨率 depth、confidence、ARKit pose、mesh/point cloud、3D object annotations 等，具体取决于 raw、3dod、upsampling 子集。
 
 Metadata：
@@ -425,6 +431,8 @@ Metadata：
 官方/主要参考：
 - https://bair.berkeley.edu/blog/2018/05/30/bdd/
 - https://github.com/bdd100k/bdd100k
+
+背景说明：BDD100K 由 UC Berkeley / Berkeley DeepDrive 团队发布，针对早期自动驾驶视觉数据在天气、时间、道路环境和任务类型上覆盖不足的问题而构建。它一开始就服务 heterogeneous multitask learning，而不是单一检测任务；后续长期作为自动驾驶 2D 感知、多任务学习、车道线/可行驶区域/分割 benchmark 和工程预训练数据源使用。
 
 原始内容：真实自动驾驶视频/图像数据。主要提供 RGB、检测框、车道线、可行驶区域、语义/实例/panoptic 分割等 2D 标注。通常不提供深度、相机位姿和点云。
 
@@ -475,6 +483,8 @@ labels 多为 JSON；`images/100k` 通常是从视频抽取的关键帧；不同
 
 官方/主要参考：
 - https://github.com/YoYo000/BlendedMVS
+
+背景说明：BlendedMVS 由浙江大学等团队在 CVPR 2020 发布，核心动机是补足深度学习 MVS 网络训练数据不足、场景复杂度不够的问题。相比 DTU 等早期数据，它更大、更复杂，也更接近真实应用场景；后来逐渐成为 MVS、NVS、NeRF/3DGS 数据预处理和多视图几何 adapter 验证中常用的公开样本。
 
 原始内容：MVS/NVS 训练数据，包含多视图 RGB、渲染/融合深度图、相机参数、pair 信息，场景涵盖建筑、雕塑、小物体等。
 
@@ -530,6 +540,8 @@ BlendedMVS/
 官方/主要参考：
 - https://github.com/facebookresearch/co3d/tree/v1
 - https://github.com/facebookresearch/co3d
+
+背景说明：CO3D 由 Facebook AI Research / Meta AI 发布，面向常见物体类别的 category-level 3D reconstruction 和 new-view synthesis。它把真实多视图视频、相机、mask、深度和点云组织成 object-centric 数据，后续从 CO3D v1/v2 延伸到 uCO3D，也推动了 object-centric 3D foundation model、NeRFormer、LRM/Instant3D 类训练数据的发展。
 
 原始内容：真实 object-centric 多视图数据，提供 RGB、foreground masks、depth/depth masks、camera poses、point cloud、category/sequence annotations。v2 相比 v1 有更多 sequences/frames 和更好的 mask。
 
@@ -587,6 +599,8 @@ set_lists/*.json
 官方/主要参考：
 - https://dl3dv-10k.github.io/DL3DV-10K/
 - https://huggingface.co/datasets/DL3DV/DL3DV-10K
+
+背景说明：DL3DV-10K 由 Purdue University 等团队发布，目标是把 deep learning-based 3D vision 从小规模、多为受控采集的数据推进到大规模真实场景视频。它最初服务 novel view synthesis 和 NeRF 泛化训练，后续形成 DL3DV-10K benchmark 与下载工具链，并逐渐被用于大规模 NVS、3DGS 和场景级重建模型评测。
 
 原始内容：大规模真实视频数据，面向 NVS/3D reconstruction。提供 4K 视频、COLMAP 标定结果、稀疏点云、downsampled images、`transforms.json` 等。
 
@@ -647,6 +661,8 @@ Metadata：
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#habitat-matterport-3d-research-dataset-hm3d
 - https://matterport.com/habitat-matterport-3d-research-dataset
 
+背景说明：HM3D 由 Meta AI Habitat 团队与 Matterport 合作发布，延续了 Habitat 对大规模真实室内环境的需求。它最初为 embodied AI、PointGoal/ObjectNav 导航和 Habitat 仿真提供 1000 个建筑级真实室内 3D 环境，之后扩展出 HM3D Semantics 等语义版本，并成为 Habitat Challenge、导航模型训练和室内仿真评测的核心资产。
+
 原始内容：真实室内/建筑级 textured 3D mesh，常用于 Habitat。包含 `.glb/.obj` mesh、textures、语义版本/语义映射（取决于下载版本）。不直接提供 RGB-D 轨迹帧。
 
 Metadata：
@@ -687,6 +703,8 @@ Metadata：
 
 官方/主要参考：
 - https://github.com/apple/ml-hypersim
+
+背景说明：Hypersim 由 Apple 机器学习研究团队发布，思路是用高真实感合成渲染弥补真实室内数据难以获得完整几何、材质、光照和像素级标注的问题。它最初服务 holistic indoor scene understanding，后来持续被用于室内深度、法线、语义、材质估计和合成到真实泛化研究。
 
 原始内容：大规模 photorealistic synthetic indoor 数据，提供 RGB/HDR、depth、surface normal、3D position、semantic、semantic instance、mesh/object metadata、camera trajectory、lighting/material 信息。
 
@@ -730,6 +748,8 @@ Metadata：
 - https://niessner.github.io/Matterport/
 - https://github.com/niessner/Matterport
 
+背景说明：Matterport3D 由 Stanford、Princeton、Technical University of Munich 等研究者与 Matterport 数据采集体系共同推动，是早期建筑级真实 RGB-D 室内数据的重要代表。它最初为 RGB-D indoor scene understanding 提供全景、深度、pose、mesh 和语义标注，之后又成为 ScanNet、HM3D、Habitat、Matterport3D Simulator 等室内理解和 embodied AI 工作的重要前序基准。
+
 原始内容：真实建筑级 RGB-D panorama/mesh 数据，包含大量 RGB-D 图像、camera poses、surface reconstructions、2D/3D semantic annotations、region/object annotations。
 
 Metadata：
@@ -770,6 +790,8 @@ Metadata：
 
 官方/主要参考：
 - https://www.cs.cornell.edu/projects/megadepth/
+
+背景说明：MegaDepth 由 Cornell University / Cornell Tech 等团队提出，利用互联网地标照片、SfM 和 MVS 自动生成大规模单目深度训练监督。它一开始主要服务 single-view depth prediction，后来也成为单目深度、相对位姿、局部特征匹配和互联网照片重建领域的常用数据来源，并继续影响 long-tail Internet photo reconstruction 方向。
 
 原始内容：从互联网照片集合通过 SfM/MVS 生成的大规模单目深度数据。主要用于单目深度和几何学习，场景多为室外地标/建筑。
 
@@ -813,6 +835,8 @@ Metadata：
 - https://gaplab.cuhk.edu.cn/projects/MVImgNet/
 - https://github.com/GAP-LAB-CUHK-SZ/MVImgNet
 
+背景说明：MVImgNet 由香港中文大学深圳 GAP Lab 等团队发布，通过拍摄日常物体视频来构建大规模 object-centric 多视图图像集。它最初用于多视图表征、物体重建和类别级 3D 学习，后续派生出 MVPNet 点云数据，并进一步发展为 MVImgNet 2.0，提高 360 度覆盖、mask、SfM pose 和 dense point cloud 质量。
+
 原始内容：object-centric 多视图真实视频/图像数据，覆盖大量物体类别。提供 RGB、object masks、camera parameters、point clouds 等标注。
 
 Metadata：
@@ -853,6 +877,8 @@ Metadata：
 
 官方/主要参考：
 - https://luyues.github.io/mvimgnet2/
+
+背景说明：MVImgNet 2.0 是 MVImgNet 原团队的继续扩展，重点修正原版本在 360 度覆盖、前景 mask、SfM pose 精度和 dense point cloud 质量上的不足。它更适合作为 object-level reconstruction、NVS 和 3D foundation model 训练数据，也为同类 adapter 提供了从低质量 SfM 到高质量 SfM 的版本演化样例。
 
 原始内容：MVImgNet 的扩展版本，包含更多 object instances/categories，并提供 segment masks、SfM poses、dense point clouds 等。
 
@@ -895,6 +921,8 @@ Metadata：
 官方/主要参考：
 - https://www.nuscenes.org/nuscenes
 - https://github.com/nutonomy/nuscenes-devkit
+
+背景说明：nuScenes 由 nuTonomy/Aptiv 团队发布，后续由 Motional 维护。它在 Boston 和 Singapore 的复杂城市道路中采集 camera、LiDAR、radar、map 和 3D 标注，最初服务自动驾驶多传感器感知；之后扩展出 nuImages、lidarseg/panoptic nuScenes、nuPlan 和 nuReality，形成自动驾驶感知、规划和仿真研究的一整套系列基准。
 
 原始内容：真实自动驾驶多传感器数据。提供 6 cameras、LiDAR、radar、ego pose、calibrated sensor、3D boxes、map、lidarseg/panoptic 等。
 
@@ -944,6 +972,8 @@ T_camera_to_global = T_ego_to_global @ T_camera_to_ego
 - https://objaverse.allenai.org/
 - https://github.com/allenai/objaverse-xl
 
+背景说明：Objaverse-XL 由 Allen Institute for AI、University of Washington、Columbia University、Stability AI、LAION、Caltech 等机构合作发布。它通过聚合网络多源 3D 资产，为 3D 生成、NVS、资产检索和大规模 3D 表征学习提供开放语料；后续成为 Zero123/3D generative model 训练的重要资产库，同时也引发了围绕 license、质量清洗和资产来源治理的持续讨论。
+
 原始内容：超大规模 3D object asset 数据集，包含 10M+ 3D objects。对象来自多源，许可证逐对象不同。通常通过 Python API 下载 metadata 和 object assets。
 
 Metadata：
@@ -984,6 +1014,8 @@ Metadata：
 
 官方/主要参考：
 - https://huggingface.co/datasets/nkp37/OpenVid-1M
+
+背景说明：OpenVid-1M 由南京大学 PCALab、ByteDance、南开大学等团队发布，面向 text-to-video generation 构建百万级高质量视频-文本训练数据。它后续被用于视频生成、视频理解和多模态预训练研究；但放到本项目中，它只能作为视觉-语言背景数据或伪几何挖掘来源，而不能被视作几何真值数据集。
 
 原始内容：大规模 text-video 数据，提供视频文件及 CSV/JSON 描述，包含 caption/metadata。无官方深度、相机位姿、点云。
 
@@ -1027,6 +1059,8 @@ Metadata：
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replica-dataset
 - https://github.com/facebookresearch/Replica-Dataset
 
+背景说明：Replica 由 Facebook Reality Labs、Facebook AI Research、Georgia Tech、Simon Fraser University 等团队发布，目标是为 Habitat 和 embodied agents 提供高真实感室内数字复刻。它包含 dense mesh、HDR texture 和语义标注，后续成为 Habitat-compatible 室内场景资产，并进一步被 ReplicaCAD 改造为可交互、可物理仿真的公寓场景。
+
 原始内容：高质量室内空间重建，提供 clean dense geometry、HDR textures、semantic class/instance、planar segmentation、Habitat export。
 
 Metadata：
@@ -1067,6 +1101,8 @@ Metadata：
 
 官方/主要参考：
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replicacad
+
+背景说明：ReplicaCAD 由 Meta AI / Habitat 2.0 团队基于 Replica 场景重建并由 3D artists 重新 CAD 化。它面向 Home Assistant Benchmark 和移动操作任务，提供可交互、带关节物体和物理属性的室内仿真环境；后续成为 Habitat 2.0 的核心交互场景资产，也推动静态 mesh 数据向 physics-ready interactive digital twin 演化。
 
 原始内容：基于 Replica FRL apartment 的可交互 CAD/仿真室内场景，包含 static background、object assets、URDF/physical properties、receptacle metadata、scene configs、navmesh。
 
@@ -1110,6 +1146,8 @@ Metadata：
 - https://www.scan-net.org/
 - https://github.com/ScanNet/ScanNet
 
+背景说明：ScanNet 由 Stanford、Princeton、Technical University of Munich 等团队发布，通过大规模真实 RGB-D video scans 支撑 3D semantic segmentation、scene reconstruction、CAD retrieval 和室内场景理解。它后来成为 3D scene understanding 最常用基准之一，并直接影响 ScanNet++、开放词汇室内理解和大量 2D/3D 语义标注工作。
+
 原始内容：真实 RGB-D video scans，包含 2.5M views、1500+ scans、3D camera poses、surface reconstruction、instance-level semantic segmentations。
 
 Metadata：
@@ -1151,6 +1189,8 @@ Metadata：
 官方/主要参考：
 - https://github.com/lmb-freiburg/robustmvd/blob/master/rmvd/data/README.md#staticthings3d
 
+背景说明：StaticThings3D 在当前调研中主要通过 University of Freiburg 的 RobustMVD 工程流被使用，源头属于合成多视图/深度训练数据生态。它适合为 robust multi-view depth estimation 提供结构简单、监督明确的合成样本；后续更多作为 MVD/MVS 代码库中的转换后训练/测试格式存在，适合用作 adapter 的小型回归测试，而不是独立发展的通用场景基准。
+
 原始内容：合成/静态物体多视图数据，常用于 MVD/MVS。RobustMVD 转换格式提供 images、poses、intrinsics、depth、invdepth、depth_range 等。
 
 Metadata：
@@ -1191,6 +1231,8 @@ Metadata：
 
 官方/主要参考：
 - https://github.com/facebookresearch/uco3d
+
+背景说明：uCO3D 由 Meta AI Research 发布，面向真实物体 3D deep learning 和 3D generative AI。它试图补足 CO3D/MVImgNet 在类别多样性、全 360 度覆盖和多模态标注上的不足，并配套 3D Gaussian、caption、depth、point cloud 和 PyTorch3D 工具链；后续已被用于训练 LRM、CAT3D、Instant3D 等真实数据驱动的 3D 模型。
 
 原始内容：object-centric 真实 turntable 视频数据。提供 RGB video、mask video、depth maps、camera poses、point clouds、segmented point clouds、3D Gaussian splats、LVIS 类别、短/长文本描述。
 
@@ -1249,6 +1291,8 @@ frame-level metadata、camera poses、paths 等存储在 `metadata.sqlite`；spl
 - https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#ycb-benchmarks---object-and-model-set
 - https://www.ycbbenchmarks.com/
 
+背景说明：YCB Object and Model Set 由 Yale、Carnegie Mellon University、UC Berkeley 等团队共同提出，目的是为机器人抓取、操作、假肢和康复研究建立统一物体集合和 benchmark protocol。它后来成为 6D pose、grasping、manipulation、仿真资产和真实机器人评测中持续复用的标准物体库。
+
 原始内容：常见物体 object set，提供每个物体多视角 RGB-D/RGB 图像、segmentation masks、camera calibration、texture-mapped 3D mesh。面向机器人抓取/操作。
 
 Metadata：
@@ -1290,6 +1334,8 @@ Metadata：
 官方/主要参考：
 - https://github.com/billbillbilly/gloBFPr
 - https://zenodo.org/records/10570660
+
+背景说明：3D-GloBFP 由遥感与地理信息方向研究团队在 Earth System Science Data 发表，并通过 Zenodo/gloBFPr 分发。它融合多源 Earth Observation 数据和机器学习方法，估计全球单体建筑 footprint-level height；后续被用于城市形态、气候、社会经济和全球 3D 建筑制图研究。本项目中它属于 GIS/遥感格式家族，而不是相机几何数据。
 
 原始内容：全球建筑物 footprint + height 数据。面向遥感/建筑高度提取，不是图像多视图数据。数据通常以 GIS vector/tile 形式提供，包含 building footprint polygon 和 height 属性。
 
@@ -1334,6 +1380,8 @@ Metadata：
 - https://scannetpp.mlsg.cit.tum.de/scannetpp/documentation
 - https://github.com/scannetpp/scannetpp
 
+背景说明：ScanNet++ 由 Technical University of Munich / MLSG 等团队在 ScanNet 体系上继续建设，使用高端激光扫描、DSLR 和 iPhone RGB-D 数据提升室内场景几何与图像质量。它面向 high-fidelity reconstruction、NVS 和语义理解，后续已发布 v2，场景规模扩展到 1000+，并成为 NeRF/3DGS、高保真室内重建和多传感器配准的重要 benchmark。
+
 原始内容：高保真真实室内场景，提供 laser scans、DSLR images、iPhone RGB-D、mesh、semantic/instance annotations、point clouds、panocam 等。
 
 Metadata：
@@ -1374,6 +1422,8 @@ Metadata：
 
 官方/主要参考：
 - https://huggingface.co/datasets/spatialverse/InteriorAgent
+
+背景说明：InteriorAgent 由 SpatialVerse Research Team / Manycore Tech Inc. 发布，提供 Isaac Sim 可用的交互式 USD 室内场景。它主要面向 synthetic data generation、导航和物理仿真，后续进入 SpatialVerse/SAGE-3D 资产生态，并被 NVIDIA Isaac Sim 第三方 USD 资产文档引用为可用仿真数据源。
 
 原始内容：高质量 USD/USDa 室内场景资产，面向 NVIDIA Isaac Sim。提供 materials、meshes、lighting、floorplan、room metadata，适用于导航、操作、布局理解。
 
@@ -1430,6 +1480,8 @@ kujiale_xxxx/
 - https://github.com/manycore-research/InteriorGS
 - https://huggingface.co/datasets/spatialverse/SAGE-3D_InteriorGS_usdz
 
+背景说明：InteriorGS/SAGE-3D InteriorGS 来自 SpatialVerse/Manycore 及 SAGE-3D 相关研究生态，关注 embodied navigation 和 XR 中的 3D Gaussian 场景。它为 GS 场景补充 object-level semantic grounding、occupancy 和可执行/碰撞信息，推动 3DGS 从视觉渲染表示转向带语义与物理接口的可导航环境；本项目应把它视为独立几何载体，而不是 mesh 的附属格式。
+
 原始内容：室内 3D Gaussian Splatting 场景，带语义标注和空间占用信息。用户给出的 HF 数据是将 InteriorGS compressed PLY 转换为 USDZ 的版本，面向 Isaac Sim/Omniverse。
 
 Metadata：
@@ -1480,6 +1532,8 @@ InteriorGS_usdz/
 官方/主要参考：
 - https://huggingface.co/datasets/xinjue1/TabletopGen-Assets/tree/main/scene_gallery
 
+背景说明：TabletopGen-Assets 由 TabletopGen 相关作者通过 Hugging Face 发布，支持从文本或单图生成 instance-level interactive tabletop scenes，并配套 Isaac Sim pick-and-place manipulation demo。它目前更像论文/项目资产包而非成熟 benchmark，但可作为小尺度桌面操作和生成式场景 adapter 的早期样例。
+
 原始内容：TabletopGen 生成的预制 3D 桌面场景和机器人 manipulation demo assets，面向文本/单图到可交互 3D tabletop scene。
 
 Metadata：
@@ -1525,6 +1579,8 @@ manipulation_demo/    # Isaac Sim pick-and-place demo code/assets
 
 官方/主要参考：用户表格未提供 URL。
 
+背景说明：当前表格中的 “Maya” 未能唯一对应到一个有明确发布团队、论文和官网的公开 benchmark，更可能指 Autodesk Maya/DCC 资产来源或内部整理场景。若作为数据源，它应被理解为人工建模或 DCC 导出的室内外 mesh/scene 资产；在正式适配前需要补齐数据来源、授权、目录样例和导出规范，否则不宜按公开数据集归因。
+
 原始内容：按用户描述，是室内外 mesh 场景，包含奇特场景，如宫殿、货船等。现阶段它不是可唯一识别的公开 benchmark，只能作为自定义 DCC 场景源占位。
 
 Metadata：
@@ -1567,6 +1623,8 @@ Metadata：
 - https://opensatmap.github.io/
 - https://huggingface.co/datasets/z-hb/OpenSatMap
 
+背景说明：OpenSatMap 由中国科学院自动化研究所、腾讯地图、北京邮电大学等团队发布，关注从高分辨率卫星图中提取细粒度道路结构。它最初服务大规模地图构建和自动驾驶 HD map 更新，后续进入 NeurIPS Datasets and Benchmarks 体系，并作为 satellite-based map construction、道路矢量化和遥感地图理解的公开 benchmark。
+
 原始内容：高分辨率卫星图像 + 细粒度 instance-level road structure annotations。覆盖多国多城市，并与 nuScenes/Argoverse2 等自动驾驶区域有对齐关系。
 
 Metadata：
@@ -1607,6 +1665,8 @@ Metadata：
 
 官方/主要参考：
 - https://github.com/rilab314/SatelliteLaneDataset2024
+
+背景说明：SEED-MAP / SatelliteLaneDataset2024 由 RILAB 等团队以 GitHub 数据与工具形式发布，面向卫星图中的道路、车道线和路面符号检测。它提供从 shapefile/vector 到 COCO/ADE20K 训练格式的构建链路，目前更偏早期开放数据工程，适合作为遥感矢量标注到语义分割格式转换的验证样例。
 
 原始内容：韩国首尔/仁川卫星道路标注数据，包含 image-label pairs，也提供 COCO form 和 ADE20K form。用户表格说明包含大量车道线和路面符号标注。
 
@@ -1666,6 +1726,8 @@ datasets/
 - https://github.com/mattzh72/articraft
 - https://arxiv.org/html/2605.15187v1
 
+背景说明：Articraft-10K 由 Articraft agentic articulated asset generation 系统的研究团队发布，直接针对 articulated 3D asset 稀缺问题。它为机器人仿真、VR 和可动对象生成提供 10K+ URDF/mesh/semantic part/joint 样本；作为 2026 年左右的新数据集，它的主要价值在于验证 agentic asset generation 和 articulated-object model training，数据质量与通用 benchmark 地位仍需后续社区验证。
+
 原始内容：Articraft 是 agentic articulated 3D asset generation 系统；Articraft-10K 包含 10K+ articulated 3D assets，覆盖日常物体类别。每个资产由程序生成，输出 URDF、3D meshes、semantic parts、articulated joints、joint axes 与 motion ranges。
 
 Metadata：
@@ -1709,6 +1771,8 @@ Metadata：
 - https://github.com/NVlabs/sage
 - https://research.nvidia.com/labs/dir/sage/
 
+背景说明：SAGE-10k 由 NVIDIA 发布，来源于 “SAGE: Scalable Agentic 3D Scene Generation for Embodied AI” 管线。它为 embodied AI 和 physics-based simulation 生成 simulation-ready interactive indoor scenes，后续进入 Hugging Face 分发，作为 agentic scene generation、Isaac/物理仿真和世界模型训练的早期大规模室内场景资产库。
+
 原始内容：大规模交互式室内场景数据，包含 10,000 diverse scenes、50 room types/styles、565K generated 3D objects。面向 Isaac Sim、embodied AI、physics-based simulation。
 
 Metadata：
@@ -1750,6 +1814,8 @@ Metadata：
 官方/主要参考：
 - https://www.cvlibs.net/datasets/kitti/
 - https://registry.opendata.aws/kitti/
+
+背景说明：KITTI Vision Benchmark Suite 由 Karlsruhe Institute of Technology 和 Toyota Technological Institute at Chicago 团队发布，是自动驾驶计算机视觉早期最有影响力的公开基准之一。它最初覆盖 stereo、optical flow、visual odometry、3D detection/tracking 和 road estimation，后续长期作为自动驾驶几何基准的事实标准，并推动 KITTI-360、SemanticKITTI、nuScenes、Waymo 等更大规模数据集的发展。
 
 原始内容：真实自动驾驶数据，包含 stereo cameras、Velodyne LiDAR、GPS/IMU localization。任务覆盖 stereo、optical flow、visual odometry、3D object detection/tracking、road/semantic 等。
 
@@ -1802,6 +1868,8 @@ poses/<seq>.txt   # odometry benchmark
 官方/主要参考：
 - https://www.cvlibs.net/datasets/kitti-360/
 
+背景说明：KITTI-360 由 Karlsruhe/Tübingen 自动驾驶视觉研究团队在 KITTI 基础上发布，面向 urban scene understanding in 2D and 3D。它提供更长距离、更丰富传感器和密集语义/实例标注，后来成为连接自动驾驶、图形学、机器人和场景重建的长序列 benchmark，常用于语义地图、NVS 和持续重建研究。
+
 原始内容：大规模自动驾驶数据，包含 320K+ images、100K laser scans、73.7 km driving distance、准确地理定位、2D/3D dense semantic & instance annotations。
 
 Metadata：
@@ -1844,6 +1912,8 @@ Metadata：
 - https://wayve.ai/science/wayvescenes101/
 - https://github.com/wayveai/wayve_scenes
 
+背景说明：WayveScenes101 由 Wayve 研究团队发布，面向自动驾驶中的 novel view synthesis 和 scene reconstruction。它提供真实多相机场景与 held-out evaluation camera，代表自动驾驶数据从感知检测 benchmark 向可生成、可重建世界模型数据演化，适合验证 camera-only driving NVS adapter。
+
 原始内容：真实自动驾驶 NVS/scene reconstruction 数据集，包含 101 scenes，每个 scene 20 秒，5 个 time-synchronised cameras，10 FPS，共约 101,000 images，并提供 camera poses、held-out evaluation camera、scene-level metadata。
 
 Metadata：
@@ -1885,6 +1955,8 @@ Metadata：
 官方/主要参考：
 - https://waymo.com/open/
 - https://github.com/waymo-research/waymo-open-dataset
+
+背景说明：Waymo Open Dataset 由 Waymo 团队公开发布，初衷是向研究社区开放高质量多传感器自动驾驶数据，支持 perception、motion forecasting 和端到端驾驶研究。它从 2019 年 Perception 数据扩展到 Motion、End-to-End Driving、object assets、Parquet component format 和年度挑战，已经成为自动驾驶工程适配中最复杂的公开格式家族之一。
 
 原始内容：真实自动驾驶大规模多传感器数据。官方仓库说明包含 Perception dataset、Motion dataset、End-To-End Driving dataset；Perception 提供高分辨率传感器数据和多任务 labels，Motion 提供 103,354 scenes 的 object trajectories 和 3D maps。
 
