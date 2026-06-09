@@ -1,3 +1,1 @@
-from .blendedmvs import BlendedMVSInspector
-
-__all__ = ["BlendedMVSInspector"]
+__all__: list[str] = []

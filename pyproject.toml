@@ -7,6 +7,10 @@ name = "unidata-skill"
 version = "0.1.0"
 description = "Minimal executable workflow for multi-source 3D dataset adaptation."
 requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pillow",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
