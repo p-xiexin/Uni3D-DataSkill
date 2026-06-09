@@ -86,6 +86,56 @@ KITTI-360/
 
 ## 4. 验证命令
 
+推荐使用配置文件维护数据集 label 与路径映射。复制示例配置：
+
+```powershell
+Copy-Item dataset_config.example.json dataset_config.local.json
+```
+
+编辑 `dataset_config.local.json`：
+
+```json
+{
+  "datasets": [
+    {
+      "label": "kitti360_train",
+      "dataset": "kitti360",
+      "root": "E:/Datasets/KITTI-360",
+      "sequences": ["2013_05_28_drive_0000_sync"],
+      "cameras": ["image_00"],
+      "frame_num": 8,
+      "stride": 5,
+      "resolution": "512x384",
+      "max_samples": 4,
+      "batch_size": 1
+    },
+    {
+      "label": "blendedmvs_train",
+      "dataset": "blendedmvs",
+      "root": "E:/Datasets/BlendedMVG",
+      "mode": "train",
+      "frame_num": 8,
+      "resolution": "768x576",
+      "max_samples": 4,
+      "batch_size": 1
+    }
+  ]
+}
+```
+
+然后按 label 自动推导并验证：
+
+```powershell
+python -m unidata_skill validate-config `
+  --config dataset_config.local.json `
+  --label kitti360_train `
+  --pi3-root E:\Projects\Pi3
+```
+
+未传 `--label` 时默认验证配置中的第一个数据集。
+
+`dataset: "kitti360"` 会调用 `Kitti360Pi3XDataset`。`dataset: "blendedmvs"` 会调用用户提供的 `BlendedMVGDataset`，其目录下应包含 `BlendedMVG_training.txt` 或 `validation_list.txt`，并依赖 Pi3X training 分支的 `datasets.base.*`。
+
 使用已安装包时：
 
 ```powershell

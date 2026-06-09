@@ -115,6 +115,41 @@ class Kitti360Pi3XDatasetTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(json.loads(output.getvalue())["status"], "ok")
 
+    def test_cli_validate_config_selects_dataset_by_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_tiny_kitti360(root)
+            config_path = root / "dataset_config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "datasets": [
+                            {
+                                "label": "tiny_kitti360",
+                                "dataset": "kitti360",
+                                "root": str(root),
+                                "sequences": [SEQUENCE],
+                                "frame_num": 3,
+                                "stride": 1,
+                                "resolution": "4x4",
+                                "max_samples": 1,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            output = StringIO()
+            with redirect_stdout(output):
+                exit_code = main(["validate-config", "--config", str(config_path), "--label", "tiny_kitti360"])
+
+            report = json.loads(output.getvalue())
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual(report["label"], "tiny_kitti360")
+            self.assertEqual(report["dataset"], "kitti360")
+
 
 if __name__ == "__main__":
     unittest.main()

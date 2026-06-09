@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from unidata_skill.pi3x import ValidationResult, validate_pi3x_dataset
+from .pi3x_validator import ValidationResult, validate_pi3x_dataset
 
 try:
     import cv2
@@ -161,7 +161,7 @@ def make_kitti360_pi3x_dataset_class(pi3_root: str | Path | None = None) -> type
             self.poses = {sequence: load_cam0_to_world(self.kitti360_root, sequence) for sequence in self.sequences}
             self.frames = self._build_frames()
             self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
-            print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.kitti360_root}", flush=True)
+            print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.kitti360_root}", file=sys.stderr, flush=True)
 
         def __len__(self) -> int:
             return len(self.sequences)
