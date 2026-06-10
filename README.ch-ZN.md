@@ -1,13 +1,12 @@
 # Uni3D DataSkill
 
-Executable helpers for adapting multi-source 3D datasets into Pi3X-compatible
-PyTorch dataloaders.
+用于将多源 3D 数据集接入 Pi3X 兼容 PyTorch dataloader 的工具。
 
-Chinese documentation: [README.ch-ZN.md](README.ch-ZN.md)
+English documentation: [README.md](README.md)
 
-## Status
+## 当前状态
 
-Current workflow:
+当前流程：
 
 ```text
 raw dataset root
@@ -16,19 +15,18 @@ raw dataset root
   -> validation report
 ```
 
-Implemented loaders include KITTI-360, KITTI odometry, nuScenes table layouts,
-WayveScenes-style transforms, Waymo KITTI-style converted layouts, and
-BlendedMVG.
+已实现的 loader 包括 KITTI-360、KITTI odometry、nuScenes table layout、
+WayveScenes-style transforms、Waymo KITTI-style converted layout 和 BlendedMVG。
 
-## Requirements
+## 环境要求
 
-- Python 3.10 or newer.
-- A local conda or Python environment with PyTorch-compatible dependencies.
-- Pi3 training branch checked out at `thirdparty/Pi3`.
+- Python 3.10 或更新版本。
+- 本地 conda 或 Python 环境，并安装 PyTorch 相关依赖。
+- Pi3 training 分支固定放在 `thirdparty/Pi3`。
 
-## Installation
+## 安装
 
-Clone this repository and create or activate your Python environment:
+克隆本仓库并创建或激活 Python 环境：
 
 ```bash
 git clone <this-repository-url>
@@ -36,13 +34,13 @@ cd Uni3D-DataSkill
 conda activate <env-name>
 ```
 
-Install this package in editable mode:
+以 editable 模式安装本仓库：
 
 ```bash
 python -m pip install -e .
 ```
 
-Clone Pi3 into the required third-party path:
+将 Pi3 克隆到固定 third-party 路径：
 
 ```bash
 git clone https://github.com/yyfz/Pi3.git thirdparty/Pi3
@@ -50,22 +48,21 @@ cd thirdparty/Pi3
 git checkout training
 ```
 
-Install Pi3 dependencies:
+安装 Pi3 依赖：
 
 ```bash
 python -m pip install -r thirdparty/Pi3/requirements.txt
 ```
 
-## Dataset Config
+## 数据集配置
 
-Use a local JSON config to map dataset labels to dataset roots. Start from the
-example file:
+使用本地 JSON 配置文件维护 dataset label 和数据集根目录的映射。可以从示例文件开始：
 
 ```bash
 cp dataset_config.example.json dataset_config.local.json
 ```
 
-Example:
+示例：
 
 ```json
 {
@@ -86,8 +83,7 @@ Example:
 }
 ```
 
-`root` can be a local disk path or a Windows UNC share path that the current
-Python process can read.
+`root` 可以是本地磁盘路径，或当前 Python 进程可读取的 Windows UNC 共享路径。
 
 ```json
 {
@@ -108,10 +104,10 @@ Python process can read.
 }
 ```
 
-In JSON, write UNC paths with escaped backslashes, for example
-`\\\\10.1.1.1\\123123\\KITTI-360`.
+JSON 中的 UNC 路径需要转义反斜杠，例如
+`\\\\10.1.1.1\\123123\\KITTI-360`，对应实际路径 `\\10.1.1.1\123123\KITTI-360`。
 
-Supported dataset keys:
+当前支持的数据集 key：
 
 | Dataset key | Loader |
 | --- | --- |
@@ -122,9 +118,9 @@ Supported dataset keys:
 | `waymo-kitti`, `waymo_kitti`, `waymo-converted-kitti` | Waymo converted to KITTI-style layout |
 | `blendedmvs`, `blendedmvg` | BlendedMVG layout |
 
-## Usage
+## 使用
 
-Validate a dataset entry from a config file:
+验证配置文件中的一个数据集条目：
 
 ```bash
 python -m unidata_skill validate-config \
@@ -132,7 +128,7 @@ python -m unidata_skill validate-config \
   --label kitti360_train
 ```
 
-The validator prints a JSON report:
+验证器会输出 JSON 报告：
 
 ```json
 {
@@ -145,10 +141,9 @@ The validator prints a JSON report:
 }
 ```
 
-## Dataset Layouts
+## 数据集目录结构
 
-Each dataloader reads its own official or converted raw layout directly.
-KITTI-360 example:
+每个 dataloader 直接读取对应数据集的官方或转换后目录结构。KITTI-360 示例：
 
 ```text
 KITTI-360/
@@ -166,21 +161,17 @@ KITTI-360/
       cam0_to_world.txt
 ```
 
-## Development
+## 开发
 
-Run tests with:
+运行测试：
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Known Limitations
+## 已知限制
 
-- No index, cache, or intermediate target schema is generated for direct
-  dataloaders.
-- Dense depth, point cloud projection, semantic labels, instance labels, and 3D
-  boxes are not loaded for the current autonomous-driving direct loaders.
-- nuScenes and Waymo native point cloud/depth projection are not implemented in
-  the current direct loaders.
-- Waymo support currently targets KITTI-style converted layouts, not native
-  TFRecord/protobuf tables.
+- direct dataloader 当前不生成 index、cache 或中间 target schema。
+- 当前自动驾驶类 direct loader 尚未加载 dense depth、点云投影、语义标签、instance 标签和 3D boxes。
+- 当前 direct loader 尚未实现 nuScenes 和 Waymo native point cloud/depth projection。
+- Waymo 当前支持 KITTI-style converted layout，不直接读取 native TFRecord/protobuf table。
