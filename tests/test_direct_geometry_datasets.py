@@ -23,9 +23,10 @@ def write_tiny_kitti_odometry(root: Path, sequence: str = "00", frame_count: int
     seq_dir.joinpath("calib.txt").write_text(
         "\n".join(
             [
+                "# generated on 2011-09-26, should be ignored",
                 "P0: 100 0 2 0 0 100 2 0 0 0 1 0",
                 "P1: 100 0 2 0 0 100 2 0 0 0 1 0",
-                "P2: 100 0 2 0 0 100 2 0 0 0 1 0",
+                "P2: 100 0 2 0 0 100 2 0 0 0 1 0 # inline comment",
                 "P3: 100 0 2 0 0 100 2 0 0 0 1 0",
             ]
         )
@@ -40,6 +41,7 @@ def write_tiny_kitti_odometry(root: Path, sequence: str = "00", frame_count: int
         pose[0, 3] = float(idx)
         pose_lines.append(" ".join(str(float(item)) for item in pose[:3, :].reshape(-1)))
         _write_image(seq_dir / "image_2" / f"{idx:06d}.png", color=(idx * 20, 40, 60))
+    pose_lines.insert(0, "# generated poses, should be ignored")
     pose_dir.joinpath(f"{sequence}.txt").write_text("\n".join(pose_lines) + "\n", encoding="utf-8")
 
 

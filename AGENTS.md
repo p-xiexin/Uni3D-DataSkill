@@ -1,20 +1,46 @@
 # Repository Agent Guide
 
-This repository is moving from dataset-format research toward an executable data-adaptation skill for multi-source 3D datasets. Use this file as the operating guide for future agents working in this workspace.
+This repository is an executable dataset-loading toolkit for multi-source 3D
+datasets. The current implementation is centered on direct Pi3X-compatible
+PyTorch dataloaders.
 
-## Current Repository State
+## Current Architecture
 
-Primary artifacts:
+The active flow is:
 
-- `dataset_skill_design.md`: main design document and current source of truth for dataset metadata, target schema, adaptation strategy, and implementation direction.
-- `面向多源三维数据集自动适配的 SKILL.md 设计研究.md`: Chinese research/design companion document.
-- `面向多源三维数据集自动适配的 SKILL.md 设计研究.pdf`: rendered PDF companion artifact.
+```text
+raw or converted dataset root
+  -> dataset-specific Pi3X dataloader
+  -> Pi3 BaseDataset behavior
+  -> PyTorch DataLoader
+  -> validation report
+```
 
-There is now a minimal implementation package and tests. The active workflow is direct Pi3X-compatible dataloader validation for multiple raw or converted dataset layouts.
+The implementation lives mainly in:
+
+```text
+src/unidata_skill/
+  cli.py
+  config.py
+  datasets/
+    __init__.py
+    blendedmvg_dataset.py
+    kitti360_dataset.py
+    kitti_odometry_dataset.py
+    nuscenes_dataset.py
+    pi3x_validator.py
+    waymo_kitti_dataset.py
+    wayve_dataset.py
+tests/
+```
+
+Use the actual package layout, README files, tests, and current dataloader
+patterns as the operating reference.
 
 ## Required Local Environment
 
-Use the local conda environment named `huawei` for development, validation, and test commands.
+Use the local conda environment named `huawei` for development, validation, and
+test commands.
 
 Confirmed local paths:
 
@@ -26,25 +52,30 @@ Python: D:\miniconda3\envs\huawei\python.exe
 Python version: 3.11.15
 ```
 
-Before running repository commands in an interactive shell, activate it:
+In interactive shells:
 
 ```powershell
 conda activate huawei
 ```
 
-In non-interactive PowerShell sessions where `conda` is not on `PATH`, call the environment Python directly:
+In non-interactive PowerShell sessions, call the environment Python directly:
 
 ```powershell
+$env:PYTHONPATH='src'
 D:\miniconda3\envs\huawei\python.exe -m unittest discover -s tests -v
 ```
 
-The Pi3 training repository is a required third-party checkout at:
+## Pi3 Dependency
+
+Pi3 is a required third-party checkout at:
 
 ```text
 thirdparty/Pi3
 ```
 
-This checkout should be `https://github.com/yyfz/Pi3.git` on the `training` branch and should be installed into the active `huawei` environment:
+It should be `https://github.com/yyfz/Pi3.git` on the `training` branch.
+
+Setup:
 
 ```powershell
 git clone https://github.com/yyfz/Pi3.git thirdparty/Pi3
@@ -53,182 +84,147 @@ git checkout training
 python -m pip install -r requirements.txt
 ```
 
-Do not add `--pi3-root`, `PI3_ROOT` environment variables, or other alternate Pi3 path handling unless the user explicitly asks to reintroduce it. The project should resolve Pi3 from `thirdparty/Pi3`.
+Pi3 does not currently install as an editable Python package in this workflow.
+This repository adds `thirdparty/Pi3` to `sys.path` once in
+`src/unidata_skill/datasets/__init__.py`.
 
-## Immediate Next Objective
+Do not add `--pi3-root`, `PI3_ROOT` environment variables, fake Pi3 packages, or
+alternate Pi3 discovery logic unless the user explicitly asks for it.
 
-The next phase is to keep turning the research document into executable direct dataloaders. Do not try to support all documented datasets at once.
+## Dataset Loader Pattern
 
-Recommended order for direct dataloader work:
+Each dataset gets its own concrete dataloader file. Keep implementations easy
+to debug before introducing shared abstractions.
 
-1. Keep the target schema definitions available for future conversion workflows.
-2. Implement one direct dataloader at a time against that dataset's raw or converted layout.
-3. Use the fixed `thirdparty/Pi3` training-branch checkout.
-4. Inherit the Pi3X training `BaseDataset` directly.
-5. Validate dataloader samples and batches for paths, cameras, poses, depth placeholders, and frame integrity.
+Use this import and inheritance style in every dataset file:
 
-Treat KITTI-360 the same as the other direct dataloaders. Do not add dataset-specific CLI commands, import wrappers, or special validator helpers unless the user explicitly asks for a dataset-specific debug tool.
+```python
+from datasets.base.base_dataset import BaseDataset
 
-## Proposed Project Structure
 
-When implementation starts, use this structure unless the user directs otherwise:
-
-```text
-registry/
-  kitti360.yaml
-  co3d.yaml
-  kitti.yaml
-src/
-  unidata_skill/
-    __init__.py
-    datasets/
-    inspect/
-    adapters/
-    schema/
-    validators/
-    exporters/
-tests/
-  fixtures/
-  test_*.py
-data/
-outputs/
+class XxxPi3XDataset(BaseDataset):
+    ...
 ```
 
-Keep `data/` and `outputs/` for local/generated assets only. They should not be committed unless the user explicitly asks for sample fixtures.
+Do not add:
 
-## Target Schema Work
+- helper files such as `pi3x.py` or `pi3_base.py`
+- dynamic class factories for normal dataset classes
+- per-file Pi3 path insertion blocks
+- fallback fake `BaseDataset` implementations
+- local resize/crop compatibility branches when Pi3
+  `_crop_resize_if_necessary()` is available
 
-Before writing adapters, define the target schema in a dedicated document or module. At minimum cover:
+Keep dataset-specific logic local to each dataloader:
 
-- `dataset_meta.json`
-- `frames.jsonl`
-- `cameras.json`
-- `poses.jsonl`
-- `pairs.jsonl`
-- `annotations/`
-- `depth/`
-- `rgb/`
-- `point_clouds/`
-- `meshes/`
-- `qa_report.json`
+- raw layout discovery
+- image/table parsing
+- calibration loading
+- pose loading
+- sample/window selection
+- placeholder fields for unavailable geometry
 
-The schema must explicitly represent:
+KITTI-360 is not special. Treat it the same as KITTI odometry, nuScenes, Wayve,
+Waymo KITTI-style, BlendedMVG, and future direct loaders.
 
-- modality source: `native`, `rendered`, `sampled`, `derived`, `estimated`, or `missing`
-- camera convention
-- pose direction
-- depth convention and unit
-- coordinate frames
-- access/licensing status
-- validation warnings
+## CLI Pattern
 
-Use the terminology already defined in `dataset_skill_design.md`:
+The public validation entry point is:
 
-- `原生`: provided directly by the dataset.
-- `渲染生成`: produced from assets through a renderer.
-- `采样生成`: generated by a sampling strategy, usually for camera poses, trajectories, views, or frame pairs.
-- `派生`: computed from existing sensor data or annotations.
-- `估计/pseudo`: inferred by SfM, SLAM, depth estimation, or another model and must not be treated as ground truth.
-- `无`: unavailable and not reliably recoverable from provided assets.
-
-## Direct Dataset Policy
-
-For the first category of datasets that can be read directly from their official raw layout, do not generate an intermediate representation, index, or cache unless the user explicitly requests it.
-
-Direct-readable datasets should use this flow:
-
-```text
-source dataset root
-  -> custom Dataset/BaseDataset implementation
-  -> PyTorch DataLoader
-  -> validation script/report
+```powershell
+python -m unidata_skill validate-config --config <config.json> --label <label>
 ```
 
-Use direct dataloaders when the official dataset already provides stable image paths, calibration, poses, and frame ids. KITTI-360, KITTI odometry, nuScenes table layouts, WayveScenes-style transforms, and Waymo KITTI-style converted layouts are handled as peer direct loaders. Generated target-schema outputs are still useful for later exporters, but they are not required for direct dataloader validation.
+Dataset construction is registered in `DATASET_LOADERS` in
+`src/unidata_skill/cli.py` using direct class references, not module/class
+strings.
 
-## Registry Requirements
+Each loader registry entry should define:
 
-Dataset registry entries should be concise and machine-readable. Each registry file should include:
+- aliases
+- class
+- root argument name, currently `data_root` for direct loaders
+- default resolution
+- default options
+- optional warning text
 
-```yaml
-name: kitti360
-profile: driving_multicamera_sequence
-domain: autonomous_driving_geometry
-storage:
-  carriers: [png, txt]
-  unit: sequence
-  key_files:
-    - calibration/perspective.txt
-    - calibration/calib_cam_to_pose.txt
-    - data_2d_raw/*/image_00/data_rect
-    - data_poses/*/cam0_to_world.txt
-required_files:
-  - calibration
-  - data_2d_raw
-  - data_poses
-conventions:
-  pose: camera_to_world
-  camera_model: pinhole
-  depth_unit: missing_or_sparse
-adapter: kitti360_pi3x
-access: public
+Do not add dataset-specific CLI commands unless the user explicitly asks for a
+temporary debug command.
+
+## Config And Paths
+
+Dataset configs are JSON files with entries like:
+
+```json
+{
+  "datasets": [
+    {
+      "label": "kitti360_train",
+      "dataset": "kitti360",
+      "root": "/path/to/KITTI-360",
+      "sequences": ["2013_05_28_drive_0000_sync"],
+      "frame_num": 8,
+      "stride": 5,
+      "resolution": "512x384",
+      "max_samples": 4,
+      "batch_size": 1
+    }
+  ]
+}
 ```
 
-Prefer explicit registry rules over heuristic guessing. Use format sniffing only when the registry does not match.
+Use a local path or an already mounted path that the current Python process can
+read.
 
-## Adapter Development Policy
+## Validation Expectations
 
-Adapters should be implemented in phases when a dataset needs conversion or materialization:
+Keep validation focused on dataloader behavior:
 
-1. `inspect`: detect dataset layout, key files, missing files, and likely version.
-2. `index`: enumerate scenes, frames, cameras, and pair candidates only when a direct dataloader is not enough.
-3. `convert`: write target schema records without copying large files unless requested.
-4. `materialize`: optionally copy, link, or convert assets into the target output tree.
-5. `validate`: produce QA reports and warnings.
-
-For direct-readable datasets, skip `index`, `convert`, and `materialize` in the first slice. Implement the dataset class directly against the raw dataset root and validate it through the shared `validate-config` workflow.
-
-Do not silently invent missing geometry. If pose, depth, scale, or calibration is estimated rather than provided, mark it as pseudo/estimated.
-
-## Validation Requirements
-
-Every adapter or direct dataloader MVP should include focused validation:
-
-- referenced files exist
+- referenced image paths exist
+- returned views have required Pi3X fields
 - camera intrinsics are finite and plausible
 - pose matrices are valid and invertible
-- depth files or placeholders have expected shape/unit/convention
-- generated records, if any, reference existing cameras and poses
-- dataloader samples reference existing frame ids and image paths
-- source modality status is preserved
-- warnings are emitted for pseudo labels, gated access, unclear units, and unclear coordinate conventions
+- depth placeholders or depth maps have expected shapes
+- DataLoader batching works when dependencies are installed
 
-## Documentation Rules
+Do not silently invent missing geometry. If depth, pose, calibration, or labels
+are unavailable or placeholders, expose that clearly in fields or warnings.
+
+## Tests
+
+Use tiny synthetic fixtures in tests. Do not restore `tests/fake_pi3` or local
+fake `BaseDataset` utilities.
+
+Preferred command:
+
+```powershell
+$env:PYTHONPATH='src'
+D:\miniconda3\envs\huawei\python.exe -m unittest discover -s tests -v
+```
+
+If tests fail while Pi3 dependencies are still being installed, report the
+specific missing dependency. Pi3 currently imports `omegaconf` from its code
+even though it may not appear in its requirements file.
+
+## Documentation
+
+Keep `README.md` as the English README and `README.ch-ZN.md` as the Chinese
+README. Keep both aligned for user-facing setup, config, and validation
+instructions.
 
 When editing Markdown:
 
-- Preserve existing terminology from `dataset_skill_design.md`.
-- Keep section headings stable unless the user asks for restructuring.
-- Use fenced code blocks for JSON, YAML, directory trees, and schemas.
-- Validate JSON examples syntactically.
-- Keep links as plain Markdown or footnotes; do not reintroduce opaque citation markers.
+- keep examples syntactically valid
+- use fenced code blocks for commands, JSON, and directory trees
+- avoid long clarification sections
+- avoid reintroducing dataset-specific CLI commands in docs
 
-## Git and Workspace Rules
+## Git And Workspace Rules
 
 - Always run `git status --short` before committing.
 - Do not commit unrelated files.
-- `AGENTS.md` may be untracked in some sessions; only commit it if the user explicitly asks to commit it.
-- Do not overwrite or revert user changes in `dataset_skill_design.md` or the Chinese companion documents.
-- Use short imperative commit messages, for example `Implement KITTI-360 Pi3X dataloader` or `Validate KITTI-360 dataloader`.
-
-## Current Implementation Pattern
-
-The recommended implementation pattern for each direct dataloader is:
-
-1. Implement one `*Pi3XDataset` class inheriting directly from Pi3 `BaseDataset`.
-2. Read that dataset's native image paths, calibration, poses, and optional geometry labels.
-3. Directly sample frame windows from the official or converted raw folders/tables.
-4. Register the loader in the shared `DATASET_LOADERS` registry.
-5. Add tests using a tiny synthetic fixture for that dataset layout.
-
-Only after the direct dataloader loop works should dense depth, LiDAR projection, semantic annotations, or target-schema conversion be added.
+- Do not overwrite or revert user changes in unrelated documents or code.
+- Use short imperative commit messages, for example
+  `Unify Pi3 dataset loading` or `Document dataset config paths`.
+- `data/`, `outputs/`, and local dataset configs are local/generated assets and
+  should not be committed unless the user explicitly asks.

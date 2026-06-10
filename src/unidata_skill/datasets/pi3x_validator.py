@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
+import torch
 
 
 @dataclass(frozen=True)
@@ -29,32 +29,114 @@ class ValidationResult:
 
 def validate_pi3x_view(view: dict[str, Any], sample_idx: int, view_idx: int) -> list[str]:
     prefix = f"sample={sample_idx} view={view_idx}"
+    return _validate_view_payload(view, prefix, batched=False)
+
+
+def validate_pi3x_batch_view(view: dict[str, Any], batch_idx: int, view_idx: int) -> list[str]:
+    prefix = f"batch={batch_idx} view={view_idx}"
+    return _validate_view_payload(view, prefix, batched=True)
+
+
+def _is_finite_tensor(value: torch.Tensor) -> bool:
+    return bool(torch.isfinite(value).all().item())
+
+
+def _validate_image(value: Any, prefix: str, batched: bool) -> list[str]:
+    if not isinstance(value, torch.Tensor):
+        return [f"{prefix}: img must be torch.Tensor"]
+    if value.numel() == 0:
+        return [f"{prefix}: invalid img"]
+    if batched:
+        valid_shape = value.ndim == 4 and value.shape[0] > 0 and value.shape[1] == 3
+    else:
+        valid_shape = value.ndim == 3 and value.shape[0] == 3
+    errors = []
+    if not valid_shape:
+        errors.append(f"{prefix}: invalid img shape {tuple(value.shape)}")
+    if not _is_finite_tensor(value):
+        errors.append(f"{prefix}: img contains non-finite values")
+    return errors
+
+
+def _validate_depth(value: Any, prefix: str, batched: bool) -> list[str]:
+    if not isinstance(value, torch.Tensor):
+        return [f"{prefix}: depthmap must be torch.Tensor"]
+    valid_shape = value.ndim == 2 or (batched and value.ndim in (3, 4))
+    if not valid_shape or value.numel() == 0 or not _is_finite_tensor(value):
+        return [f"{prefix}: invalid depthmap"]
+    return []
+
+
+def _validate_intrinsics(value: Any, prefix: str, batched: bool) -> list[str]:
+    if not isinstance(value, torch.Tensor):
+        return [f"{prefix}: camera_intrinsics must be torch.Tensor"]
+    if tuple(value.shape) == (3, 3):
+        valid = _is_finite_tensor(value) and value[0, 0].item() > 0 and value[1, 1].item() > 0
+    elif batched and value.ndim == 3 and tuple(value.shape[1:]) == (3, 3):
+        valid = _is_finite_tensor(value) and bool((value[:, 0, 0] > 0).all().item()) and bool((value[:, 1, 1] > 0).all().item())
+    else:
+        valid = False
+    if not valid:
+        return [f"{prefix}: invalid camera_intrinsics"]
+    return []
+
+
+def _validate_pose(value: Any, prefix: str, batched: bool) -> list[str]:
+    if not isinstance(value, torch.Tensor):
+        return [f"{prefix}: camera_pose must be torch.Tensor"]
+    last_row = torch.tensor([0, 0, 0, 1], dtype=value.dtype, device=value.device)
+    if tuple(value.shape) == (4, 4):
+        valid = _is_finite_tensor(value) and bool(torch.allclose(value[3], last_row))
+    elif batched and value.ndim == 3 and tuple(value.shape[1:]) == (4, 4):
+        valid = _is_finite_tensor(value) and bool(torch.allclose(value[:, 3, :], last_row.expand(value.shape[0], -1)))
+    else:
+        valid = False
+    if not valid:
+        return [f"{prefix}: invalid camera_pose"]
+    return []
+
+
+def _validate_image_path(value: Any, prefix: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        paths = value
+    else:
+        paths = [value]
+    errors = []
+    for path in paths:
+        if isinstance(path, str) and not Path(path).is_file():
+            errors.append(f"{prefix}: missing image_path {path}")
+    return errors
+
+
+def _validate_view_payload(view: dict[str, Any], prefix: str, batched: bool) -> list[str]:
     errors: list[str] = []
 
     for key in ("img", "depthmap", "camera_intrinsics", "camera_pose", "dataset", "label", "instance"):
         if key not in view:
             errors.append(f"{prefix}: missing {key}")
 
-    image_path = view.get("image_path")
-    if image_path is not None and not Path(image_path).is_file():
-        errors.append(f"{prefix}: missing image_path {image_path}")
+    errors.extend(_validate_image_path(view.get("image_path"), prefix))
+    errors.extend(_validate_image(view.get("img"), prefix, batched))
+    errors.extend(_validate_depth(view.get("depthmap"), prefix, batched))
+    errors.extend(_validate_intrinsics(view.get("camera_intrinsics"), prefix, batched))
+    errors.extend(_validate_pose(view.get("camera_pose"), prefix, batched))
 
-    img = np.asarray(view.get("img"))
-    if img.ndim != 3 or img.shape[2] != 3 or img.size == 0:
-        errors.append(f"{prefix}: invalid img")
+    return errors
 
-    depth = np.asarray(view.get("depthmap"))
-    if depth.ndim != 2 or depth.size == 0 or not np.isfinite(depth).all():
-        errors.append(f"{prefix}: invalid depthmap")
 
-    k = np.asarray(view.get("camera_intrinsics"))
-    if k.shape != (3, 3) or not np.isfinite(k).all() or k[0, 0] <= 0 or k[1, 1] <= 0:
-        errors.append(f"{prefix}: invalid camera_intrinsics")
-
-    pose = np.asarray(view.get("camera_pose"))
-    if pose.shape != (4, 4) or not np.isfinite(pose).all() or not np.allclose(pose[3], [0, 0, 0, 1]):
-        errors.append(f"{prefix}: invalid camera_pose")
-
+def validate_pi3x_batch(batch: Any, batch_idx: int) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(batch, list):
+        return [f"batch={batch_idx}: expected list of batched views"]
+    if len(batch) == 0:
+        return [f"batch={batch_idx}: no views returned"]
+    for view_idx, view in enumerate(batch):
+        if not isinstance(view, dict):
+            errors.append(f"batch={batch_idx} view={view_idx}: expected dict")
+            continue
+        errors.extend(validate_pi3x_batch_view(view, batch_idx, view_idx))
     return errors
 
 
@@ -88,14 +170,17 @@ def validate_pi3x_dataset(
             if not isinstance(view, dict):
                 errors.append(f"sample={sample_idx} view={view_idx}: expected dict")
                 continue
-            errors.extend(validate_pi3x_view(view, sample_idx, view_idx))
+            for key in ("img", "depthmap", "camera_intrinsics", "camera_pose", "dataset", "label", "instance"):
+                if key not in view:
+                    errors.append(f"sample={sample_idx} view={view_idx}: missing {key}")
 
     checked_batches = 0
     try:
         from torch.utils.data import DataLoader
 
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=lambda batch: batch)
-        for checked_batches, _batch in enumerate(loader, start=1):
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        for checked_batches, batch in enumerate(loader, start=1):
+            errors.extend(validate_pi3x_batch(batch, checked_batches - 1))
             if checked_batches >= 1:
                 break
     except ModuleNotFoundError as exc:

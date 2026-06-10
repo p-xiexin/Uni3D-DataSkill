@@ -19,23 +19,61 @@ except ModuleNotFoundError:
 KITTI360_CAMERAS = ("image_00", "image_01")
 
 
-def _parse_matrix_line(line: str) -> tuple[str, np.ndarray] | None:
+def _strip_inline_comment(line: str) -> str:
+    for marker in ("#", "//"):
+        line = line.split(marker, 1)[0]
+    return line.strip()
+
+
+def _parse_float_tokens(tokens: list[str], path: Path, line_no: int) -> list[float]:
+    try:
+        return [float(item) for item in tokens]
+    except ValueError as exc:
+        raise ValueError(f"{path}:{line_no}: expected numeric values") from exc
+
+
+def _parse_matrix_line(line: str, path: Path, line_no: int) -> tuple[str, np.ndarray] | None:
+    line = _strip_inline_comment(line)
     if not line.strip() or ":" not in line:
         return None
     name, values = line.split(":", 1)
-    floats = [float(item) for item in values.split()]
+    floats = _parse_float_tokens(values.split(), path, line_no)
     if len(floats) == 9:
         return name.strip(), np.array(floats, dtype=np.float32).reshape(3, 3)
     if len(floats) == 12:
         return name.strip(), np.array(floats, dtype=np.float32).reshape(3, 4)
-    return None
+    raise ValueError(f"{path}:{line_no}: expected 9 or 12 numeric values for {name.strip()!r}, got {len(floats)}")
+
+
+def _parse_pose_line(line: str, path: Path, line_no: int) -> tuple[int, np.ndarray] | None:
+    line = _strip_inline_comment(line)
+    if not line:
+        return None
+    parts = line.split()
+    if len(parts) not in (13, 17):
+        raise ValueError(f"{path}:{line_no}: expected frame id plus 12 or 16 pose values, got {len(parts)} tokens")
+    try:
+        frame_id = int(parts[0])
+    except ValueError as exc:
+        raise ValueError(f"{path}:{line_no}: expected integer frame id") from exc
+    values = _parse_float_tokens(parts[1:], path, line_no)
+    pose = np.eye(4, dtype=np.float32)
+    if len(values) == 12:
+        pose[:3, :] = np.array(values, dtype=np.float32).reshape(3, 4)
+    else:
+        pose[:, :] = np.array(values, dtype=np.float32).reshape(4, 4)
+        if not np.allclose(pose[3], [0, 0, 0, 1]):
+            raise ValueError(f"{path}:{line_no}: expected homogeneous pose last row [0, 0, 0, 1]")
+    if not np.isfinite(pose).all():
+        raise ValueError(f"{path}:{line_no}: pose contains non-finite values")
+    return frame_id, pose
 
 
 def load_perspective_intrinsics(data_root: Path) -> dict[str, np.ndarray]:
     path = data_root / "calibration" / "perspective.txt"
     records: dict[str, np.ndarray] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        parsed = _parse_matrix_line(line)
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        parsed = _parse_matrix_line(line, path, line_no)
         if parsed is not None:
             records[parsed[0]] = parsed[1]
 
@@ -50,18 +88,10 @@ def load_perspective_intrinsics(data_root: Path) -> dict[str, np.ndarray]:
 def load_cam0_to_world(data_root: Path, sequence: str) -> dict[int, np.ndarray]:
     path = data_root / "data_poses" / sequence / "cam0_to_world.txt"
     poses: dict[int, np.ndarray] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        parts = line.split()
-        if len(parts) not in (13, 17):
-            continue
-        frame_id = int(parts[0])
-        values = [float(item) for item in parts[1:]]
-        pose = np.eye(4, dtype=np.float32)
-        if len(values) == 12:
-            pose[:3, :] = np.array(values, dtype=np.float32).reshape(3, 4)
-        else:
-            pose[:, :] = np.array(values, dtype=np.float32).reshape(4, 4)
-        poses[frame_id] = pose
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        parsed = _parse_pose_line(line, path, line_no)
+        if parsed is not None:
+            poses[parsed[0]] = parsed[1]
     return poses
 
 

@@ -34,22 +34,60 @@ def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
     return int(resolution[0]), int(resolution[1])
 
 
-def _pose_from_3x4(values: Iterable[float]) -> np.ndarray:
+def _strip_inline_comment(line: str) -> str:
+    for marker in ("#", "//"):
+        line = line.split(marker, 1)[0]
+    return line.strip()
+
+
+def _parse_float_tokens(tokens: list[str], path: Path, line_no: int) -> list[float]:
+    try:
+        return [float(item) for item in tokens]
+    except ValueError as exc:
+        raise ValueError(f"{path}:{line_no}: expected numeric values") from exc
+
+
+def _pose_from_3x4(values: Iterable[float], path: Path, line_no: int) -> np.ndarray:
     pose = np.eye(4, dtype=np.float32)
-    pose[:3, :] = np.array(list(values), dtype=np.float32).reshape(3, 4)
+    values = list(values)
+    if len(values) != 12:
+        raise ValueError(f"{path}:{line_no}: expected 12 pose values, got {len(values)}")
+    pose[:3, :] = np.array(values, dtype=np.float32).reshape(3, 4)
+    if not np.isfinite(pose).all():
+        raise ValueError(f"{path}:{line_no}: pose contains non-finite values")
     return pose
 
 
 def _parse_calib(path: Path) -> dict[str, np.ndarray]:
     records: dict[str, np.ndarray] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = _strip_inline_comment(line)
+        if not line:
+            continue
         if ":" not in line:
             continue
         key, value = line.split(":", 1)
-        values = [float(item) for item in value.split()]
+        values = _parse_float_tokens(value.split(), path, line_no)
+        if len(values) not in (9, 12):
+            raise ValueError(f"{path}:{line_no}: expected 9 or 12 calibration values for {key.strip()!r}, got {len(values)}")
         if len(values) == 12:
             records[key.strip()] = np.array(values, dtype=np.float32).reshape(3, 4)
+        else:
+            matrix = np.eye(3, 4, dtype=np.float32)
+            matrix[:3, :3] = np.array(values, dtype=np.float32).reshape(3, 3)
+            records[key.strip()] = matrix
     return records
+
+
+def _parse_poses(path: Path) -> list[np.ndarray]:
+    poses: list[np.ndarray] = []
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = _strip_inline_comment(line)
+        if not line:
+            continue
+        values = _parse_float_tokens(line.split(), path, line_no)
+        poses.append(_pose_from_3x4(values, path, line_no))
+    return poses
 
 
 def _camera_key(camera: str) -> str:
@@ -99,7 +137,7 @@ class WaymoKittiPi3XDataset(BaseDataset):
         sequence_dir = self.data_root / "sequences" / sequence
         calib = _parse_calib(sequence_dir / "calib.txt")
         pose_path = self.data_root / "poses" / f"{sequence}.txt"
-        poses = [_pose_from_3x4(float(item) for item in line.split()) for line in pose_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        poses = _parse_poses(pose_path)
 
         frames: list[WaymoKittiFrame] = []
         for camera in self.cameras:

@@ -83,29 +83,7 @@ cp dataset_config.example.json dataset_config.local.json
 }
 ```
 
-`root` 可以是本地磁盘路径，或当前 Python 进程可读取的 Windows UNC 共享路径。
-
-```json
-{
-  "datasets": [
-    {
-      "label": "kitti360_local",
-      "dataset": "kitti360",
-      "root": "D:/datasets/KITTI-360",
-      "sequences": ["2013_05_28_drive_0000_sync"]
-    },
-    {
-      "label": "kitti360_unc_share",
-      "dataset": "kitti360",
-      "root": "\\\\10.1.1.1\\123123\\KITTI-360",
-      "sequences": ["2013_05_28_drive_0000_sync"]
-    }
-  ]
-}
-```
-
-JSON 中的 UNC 路径需要转义反斜杠，例如
-`\\\\10.1.1.1\\123123\\KITTI-360`，对应实际路径 `\\10.1.1.1\123123\KITTI-360`。
+`root` 应填写当前 Python 进程可读取的本地路径或已经挂载好的路径。
 
 当前支持的数据集 key：
 

@@ -21,8 +21,9 @@ def write_tiny_kitti360(root: Path, frame_count: int = 6) -> None:
     calibration.joinpath("perspective.txt").write_text(
         "\n".join(
             [
+                "# generated on 2013-05-28, should be ignored",
                 "P_rect_00: 100.0 0.0 2.0 0.0 0.0 100.0 2.0 0.0 0.0 0.0 1.0 0.0",
-                "P_rect_01: 100.0 0.0 2.0 0.0 0.0 100.0 2.0 0.0 0.0 0.0 1.0 0.0",
+                "P_rect_01: 100.0 0.0 2.0 0.0 0.0 100.0 2.0 0.0 0.0 0.0 1.0 0.0 # inline comment",
             ]
         )
         + "\n",
@@ -40,6 +41,7 @@ def write_tiny_kitti360(root: Path, frame_count: int = 6) -> None:
         pose = np.eye(4, dtype=np.float32)
         pose[0, 3] = float(frame_id)
         pose_lines.append(f"{frame_id} " + " ".join(str(float(item)) for item in pose[:3, :].reshape(-1)))
+    pose_lines.insert(0, "# 2013-05-28 generated poses, should be ignored")
     pose_dir.joinpath("cam0_to_world.txt").write_text("\n".join(pose_lines) + "\n", encoding="utf-8")
 
     for camera_id in ("image_00", "image_01"):

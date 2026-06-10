@@ -86,30 +86,8 @@ Example:
 }
 ```
 
-`root` can be a local disk path or a Windows UNC share path that the current
+`root` should be a local path or an already mounted path that the current
 Python process can read.
-
-```json
-{
-  "datasets": [
-    {
-      "label": "kitti360_local",
-      "dataset": "kitti360",
-      "root": "D:/datasets/KITTI-360",
-      "sequences": ["2013_05_28_drive_0000_sync"]
-    },
-    {
-      "label": "kitti360_unc_share",
-      "dataset": "kitti360",
-      "root": "\\\\10.1.1.1\\123123\\KITTI-360",
-      "sequences": ["2013_05_28_drive_0000_sync"]
-    }
-  ]
-}
-```
-
-In JSON, write UNC paths with escaped backslashes, for example
-`\\\\10.1.1.1\\123123\\KITTI-360`.
 
 Supported dataset keys:
 
