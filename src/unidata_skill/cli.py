@@ -3,12 +3,11 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-import sys
-from pathlib import Path
 from typing import Any
 
 from .config import DatasetConfig, load_dataset_configs
 from .datasets.pi3x_validator import validate_pi3x_dataset
+from .pi3x import add_pi3_root
 
 
 DATASET_LOADERS = {
@@ -41,6 +40,65 @@ DATASET_LOADERS = {
             "verbose": False,
         },
     },
+    "kitti": {
+        "aliases": {"kitti", "kitti-odometry"},
+        "module": "unidata_skill.datasets.kitti_odometry_dataset",
+        "class": "KittiOdometryPi3XDataset",
+        "root_arg": "data_root",
+        "default_resolution": "512x384",
+        "defaults": {
+            "cameras": ["image_2"],
+            "frame_num": 8,
+            "stride": 1,
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+        "warning": "KITTI dense depth is not read in this direct loader; depthmap is a placeholder unless a derived depth path is attached later",
+    },
+    "nuscenes": {
+        "aliases": {"nuscenes", "nuScenes"},
+        "module": "unidata_skill.datasets.nuscenes_dataset",
+        "class": "NuScenesPi3XDataset",
+        "root_arg": "data_root",
+        "default_resolution": "512x288",
+        "defaults": {
+            "version": "v1.0-mini",
+            "frame_num": 6,
+            "stride": 1,
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+        "warning": "nuScenes dense depth is not read in this direct loader; depthmap is a placeholder",
+    },
+    "wayve": {
+        "aliases": {"wayve", "wayvescenes", "wayvescenes101"},
+        "module": "unidata_skill.datasets.wayve_dataset",
+        "class": "WayveScenesPi3XDataset",
+        "root_arg": "data_root",
+        "default_resolution": "512x288",
+        "defaults": {
+            "frame_num": 8,
+            "stride": 1,
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+        "warning": "WayveScenes101 does not provide GT dense depth; depthmap is a placeholder",
+    },
+    "waymo-kitti": {
+        "aliases": {"waymo-kitti", "waymo_kitti", "waymo-converted-kitti"},
+        "module": "unidata_skill.datasets.waymo_kitti_dataset",
+        "class": "WaymoKittiPi3XDataset",
+        "root_arg": "data_root",
+        "default_resolution": "512x384",
+        "defaults": {
+            "cameras": ["image_2"],
+            "frame_num": 8,
+            "stride": 1,
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+        "warning": "Waymo native TFRecord/protobuf is not parsed here; this loader targets KITTI-style converted Waymo geometry",
+    },
 }
 
 
@@ -58,22 +116,11 @@ def _loader_spec(dataset: str) -> dict[str, Any]:
     raise ValueError(f"unsupported dataset '{dataset}'")
 
 
-def _add_pi3_root(pi3_root: str | None) -> None:
-    if not pi3_root:
-        return
-    root = str(Path(pi3_root).resolve())
-    if root not in sys.path:
-        sys.path.insert(0, root)
-
-
-def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig, pi3_root: str | None = None) -> tuple[dict[str, Any], int, int, list[str]]:
+def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple[dict[str, Any], int, int, list[str]]:
     options = {**spec.get("defaults", {}), **config.options}
-    effective_pi3_root = pi3_root or options.get("pi3_root")
-    _add_pi3_root(effective_pi3_root)
+    add_pi3_root()
 
     kwargs: dict[str, Any] = {spec["root_arg"]: config.root}
-    if effective_pi3_root and spec["root_arg"] == "kitti360_root":
-        kwargs["pi3_root"] = effective_pi3_root
     if "sequences" in options:
         kwargs["sequences"] = options["sequences"]
     if "cameras" in options:
@@ -84,6 +131,12 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig, pi3_root
         kwargs["stride"] = int(options["stride"])
     if "verbose" in options:
         kwargs["verbose"] = bool(options["verbose"])
+    if "version" in options:
+        kwargs["version"] = options["version"]
+    if "scene_dirs" in options:
+        kwargs["scene_dirs"] = options["scene_dirs"]
+    if "transforms_name" in options:
+        kwargs["transforms_name"] = options["transforms_name"]
 
     frame_num = int(options.get("frame_num", 8))
     max_samples = int(options.get("max_samples", 4))
@@ -98,17 +151,17 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig, pi3_root
     return kwargs, frame_num, max_samples, batch_size, warnings
 
 
-def _build_dataset_from_config(config: DatasetConfig, pi3_root: str | None = None):
+def _build_dataset_from_config(config: DatasetConfig):
     spec = _loader_spec(config.dataset)
-    kwargs, frame_num, max_samples, batch_size, warnings = _coerce_dataset_kwargs(spec, config, pi3_root=pi3_root)
+    kwargs, frame_num, max_samples, batch_size, warnings = _coerce_dataset_kwargs(spec, config)
     module = importlib.import_module(spec["module"])
     dataset_class = getattr(module, spec["class"])
     dataset = dataset_class(**kwargs)
     return dataset, frame_num, max_samples, batch_size, warnings
 
 
-def _validate_config_entry(config: DatasetConfig, pi3_root: str | None = None):
-    dataset, frame_num, max_samples, batch_size, warnings = _build_dataset_from_config(config, pi3_root=pi3_root)
+def _validate_config_entry(config: DatasetConfig):
+    dataset, frame_num, max_samples, batch_size, warnings = _build_dataset_from_config(config)
     return validate_pi3x_dataset(
         dataset,
         expected_frame_num=frame_num,
@@ -127,7 +180,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate direct KITTI-360 loading through a Pi3X-compatible dataset.",
     )
     validate_parser.add_argument("--kitti360-root", required=True, help="KITTI-360 dataset root.")
-    validate_parser.add_argument("--pi3-root", help="Local yyfz/Pi3 training-branch checkout.")
     validate_parser.add_argument("--sequence", action="append", dest="sequences", help="Sequence to include. Can be repeated.")
     validate_parser.add_argument("--camera", action="append", dest="cameras", choices=["image_00", "image_01"], help="Camera to include. Can be repeated.")
     validate_parser.add_argument("--frame-num", type=int, default=8)
@@ -142,8 +194,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     config_parser.add_argument("--config", required=True, help="Dataset mapping config JSON.")
     config_parser.add_argument("--label", help="Dataset label to validate. Defaults to the first config entry.")
-    config_parser.add_argument("--pi3-root", help="Override local yyfz/Pi3 training-branch checkout.")
-
     return parser
 
 
@@ -158,7 +208,6 @@ def main(argv: list[str] | None = None) -> int:
                 dataset="kitti360",
                 root=args.kitti360_root,
                 options={
-                    "pi3_root": args.pi3_root,
                     "sequences": args.sequences,
                     "cameras": args.cameras or ["image_00"],
                     "frame_num": args.frame_num,
@@ -168,7 +217,6 @@ def main(argv: list[str] | None = None) -> int:
                     "batch_size": args.batch_size,
                 },
             ),
-            pi3_root=args.pi3_root,
         )
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0 if result.status == "ok" else 2
@@ -178,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         selected = configs[0] if args.label is None else next((item for item in configs if item.label == args.label), None)
         if selected is None:
             parser.error(f"label not found in config: {args.label}")
-        result = _validate_config_entry(selected, pi3_root=args.pi3_root)
+        result = _validate_config_entry(selected)
         report = result.to_dict()
         report["label"] = selected.label
         report["dataset"] = selected.dataset

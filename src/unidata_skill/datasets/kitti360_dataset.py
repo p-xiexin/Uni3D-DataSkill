@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from ..pi3x import load_pi3_base_dataset
 from .pi3x_validator import ValidationResult, validate_pi3x_dataset
 
 try:
@@ -20,35 +20,8 @@ except ModuleNotFoundError:
 KITTI360_CAMERAS = ("image_00", "image_01")
 
 
-class _FallbackBaseDataset:
-    """Small local stand-in used when the Pi3X training branch is not importable."""
-
-    def __init__(
-        self,
-        resolution: list[int] | tuple[int, int] | None = None,
-        frame_num: int = 2,
-        shuffle: bool = False,
-        **_: Any,
-    ) -> None:
-        self.frame_num = frame_num
-        self.shuffle = shuffle
-        self._resolutions = [list(resolution or [512, 384])]
-        self._rng = np.random.default_rng(2024)
-
-    def __getitem__(self, idx: int) -> list[dict[str, Any]]:
-        return self._get_views(idx, self._resolutions[0], self._rng)
-
-
-def _load_pi3_base_dataset(pi3_root: str | Path | None) -> type:
-    if pi3_root:
-        root = str(Path(pi3_root).resolve())
-        if root not in sys.path:
-            sys.path.insert(0, root)
-    try:
-        module = importlib.import_module("datasets.base.base_dataset")
-        return module.BaseDataset
-    except Exception:
-        return _FallbackBaseDataset
+def _load_pi3_base_dataset() -> type:
+    return load_pi3_base_dataset()
 
 
 def _parse_matrix_line(line: str) -> tuple[str, np.ndarray] | None:
@@ -136,8 +109,8 @@ class Kitti360Frame:
     image_path: Path
 
 
-def make_kitti360_pi3x_dataset_class(pi3_root: str | Path | None = None) -> type:
-    base_dataset = _load_pi3_base_dataset(pi3_root)
+def make_kitti360_pi3x_dataset_class() -> type:
+    base_dataset = _load_pi3_base_dataset()
 
     class Kitti360Pi3XDataset(base_dataset):  # type: ignore[misc, valid-type]
         def __init__(
@@ -148,7 +121,6 @@ def make_kitti360_pi3x_dataset_class(pi3_root: str | Path | None = None) -> type
             frame_num: int = 8,
             stride: int = 5,
             resolution: list[int] | tuple[int, int] = (512, 384),
-            pi3_root: str | Path | None = None,
             **kwargs: Any,
         ) -> None:
             super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
@@ -260,13 +232,12 @@ def make_kitti360_pi3x_dataset_class(pi3_root: str | Path | None = None) -> type
     return Kitti360Pi3XDataset
 
 
-class Kitti360Pi3XDataset(make_kitti360_pi3x_dataset_class(None)):  # type: ignore[misc, valid-type]
+class Kitti360Pi3XDataset(make_kitti360_pi3x_dataset_class()):  # type: ignore[misc, valid-type]
     pass
 
 
 def validate_kitti360_pi3x_dataloader(
     kitti360_root: str | Path,
-    pi3_root: str | Path | None = None,
     sequences: list[str] | None = None,
     cameras: tuple[str, ...] = ("image_00",),
     frame_num: int = 8,
@@ -275,7 +246,7 @@ def validate_kitti360_pi3x_dataloader(
     max_samples: int = 4,
     batch_size: int = 1,
 ) -> ValidationResult:
-    dataset_class = make_kitti360_pi3x_dataset_class(pi3_root)
+    dataset_class = make_kitti360_pi3x_dataset_class()
     dataset = dataset_class(
         kitti360_root=kitti360_root,
         sequences=sequences,
@@ -283,7 +254,6 @@ def validate_kitti360_pi3x_dataloader(
         frame_num=frame_num,
         stride=stride,
         resolution=resolution,
-        pi3_root=pi3_root,
     )
 
     warnings = ["dense depth is not available in the first KITTI-360 workflow; depthmap is a placeholder"]

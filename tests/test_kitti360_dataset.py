@@ -8,6 +8,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from pi3_test_utils import install_fake_pi3
+
+install_fake_pi3()
+
 from unidata_skill.cli import main
 from unidata_skill.datasets import Kitti360Pi3XDataset, validate_kitti360_pi3x_dataloader
 

@@ -44,15 +44,16 @@ python -m pip install -e .
 $env:PYTHONPATH='src'
 ```
 
-如需使用 Pi3X training 分支中的真实 `BaseDataset`，应在本地准备 Pi3 仓库：
+推荐将 Pi3 training 分支作为 third-party checkout 放在本仓库内：
 
 ```powershell
-git clone https://github.com/yyfz/Pi3.git E:\Projects\Pi3
-cd E:\Projects\Pi3
+git clone https://github.com/yyfz/Pi3.git thirdparty/Pi3
+cd thirdparty/Pi3
 git checkout training
+python -m pip install -e .
 ```
 
-运行验证命令时，通过 `--pi3-root` 指向该 Pi3 仓库目录。若未指定 `--pi3-root`，程序将使用本仓库内置的轻量 fallback dataset。fallback 仅用于检查 KITTI-360 读取逻辑，不代表 Pi3X training 的完整运行环境。
+程序固定使用 `thirdparty/Pi3` 中的 `datasets.base.*` 和 Pi3 dataset 工具。当前阶段强依赖这个路径；若没有找到 `thirdparty/Pi3/datasets`，程序会直接报错。
 
 ## 3. 数据目录要求
 
@@ -128,8 +129,7 @@ Copy-Item dataset_config.example.json dataset_config.local.json
 ```powershell
 python -m unidata_skill validate-config `
   --config dataset_config.local.json `
-  --label kitti360_train `
-  --pi3-root E:\Projects\Pi3
+  --label kitti360_train
 ```
 
 未传 `--label` 时默认验证配置中的第一个数据集。
@@ -141,7 +141,6 @@ python -m unidata_skill validate-config `
 ```powershell
 python -m unidata_skill validate-kitti360-pi3x `
   --kitti360-root E:\Datasets\KITTI-360 `
-  --pi3-root E:\Projects\Pi3 `
   --sequence 2013_05_28_drive_0000_sync `
   --frame-num 8 `
   --stride 5 `
@@ -166,7 +165,6 @@ python -m unidata_skill validate-kitti360-pi3x `
 | 参数 | 含义 |
 | --- | --- |
 | `--kitti360-root` | KITTI-360 数据集根目录。 |
-| `--pi3-root` | 本地 Pi3 training 分支目录，可选。 |
 | `--sequence` | 待验证的 KITTI-360 sequence，可重复传入；未指定时扫描 `data_2d_raw/` 下全部 sequence。 |
 | `--camera` | 待验证相机，可选 `image_00` 或 `image_01`；未指定时使用 `image_00`。 |
 | `--frame-num` | 单个样本包含的帧数，默认值为 `8`。 |

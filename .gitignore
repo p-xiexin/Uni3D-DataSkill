@@ -6,4 +6,6 @@ data/
 outputs/
 *.egg-info/
 
+thirdparty/Pi3/
+
 inspection_report.json
