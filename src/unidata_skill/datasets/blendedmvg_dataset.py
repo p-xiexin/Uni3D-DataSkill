@@ -1,12 +1,10 @@
-import sys
-sys.path.append('.')
-
 import os
 import os.path as osp
+
 import numpy as np
 import cv2
+
 from datasets.base.base_dataset import BaseDataset
-from datasets.base.transforms import *
 
 def read_pfm(filename):
     """

@@ -8,12 +8,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from pi3_test_utils import install_fake_pi3
-
-install_fake_pi3()
-
 from unidata_skill.cli import main
-from unidata_skill.datasets import Kitti360Pi3XDataset, validate_kitti360_pi3x_dataloader
+from unidata_skill.datasets import Kitti360Pi3XDataset
 
 
 SEQUENCE = "2013_05_28_drive_0000_sync"
@@ -60,7 +56,7 @@ class Kitti360Pi3XDatasetTests(unittest.TestCase):
             root = Path(tmpdir)
             write_tiny_kitti360(root)
 
-            dataset = Kitti360Pi3XDataset(root, sequences=[SEQUENCE], frame_num=3, stride=1, resolution=(4, 4))
+            dataset = Kitti360Pi3XDataset(data_root=root, sequences=[SEQUENCE], frame_num=3, stride=1, resolution=(4, 4))
 
             self.assertEqual(len(dataset), 1)
             views = dataset[0]
@@ -71,53 +67,6 @@ class Kitti360Pi3XDatasetTests(unittest.TestCase):
             self.assertEqual(views[0]["camera_pose"].shape, (4, 4))
             self.assertEqual(views[0]["depth_source"], "placeholder_missing_dense_depth")
             self.assertTrue(Path(views[0]["image_path"]).is_file())
-
-    def test_validator_reports_ok_for_tiny_fixture(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            write_tiny_kitti360(root)
-
-            result = validate_kitti360_pi3x_dataloader(
-                root,
-                sequences=[SEQUENCE],
-                frame_num=3,
-                stride=1,
-                resolution=(4, 4),
-                max_samples=2,
-            )
-
-            self.assertEqual(result.status, "ok")
-            self.assertEqual(result.dataset_len, 1)
-            self.assertEqual(result.checked_samples, 1)
-            self.assertEqual(result.errors, [])
-
-    def test_cli_validate_kitti360_pi3x(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            write_tiny_kitti360(root)
-
-            output = StringIO()
-            with redirect_stdout(output):
-                exit_code = main(
-                    [
-                        "validate-kitti360-pi3x",
-                        "--kitti360-root",
-                        str(root),
-                        "--sequence",
-                        SEQUENCE,
-                        "--frame-num",
-                        "3",
-                        "--stride",
-                        "1",
-                        "--resolution",
-                        "4x4",
-                        "--max-samples",
-                        "1",
-                    ]
-                )
-
-            self.assertEqual(exit_code, 0)
-            self.assertEqual(json.loads(output.getvalue())["status"], "ok")
 
     def test_cli_validate_config_selects_dataset_by_label(self):
         with tempfile.TemporaryDirectory() as tmpdir:

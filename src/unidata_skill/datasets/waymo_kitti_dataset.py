@@ -8,7 +8,7 @@ from typing import Any, Iterable
 import numpy as np
 from PIL import Image
 
-from ..pi3x import load_pi3_base_dataset
+from datasets.base.base_dataset import BaseDataset
 
 try:
     import cv2
@@ -26,18 +26,6 @@ def _read_rgb_image(path: Path) -> np.ndarray | None:
         return np.asarray(Image.open(path).convert("RGB"))
     except Exception:
         return None
-
-
-def _resize_rgb_image(img: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-    if cv2 is not None:
-        return cv2.resize(img, size, interpolation=cv2.INTER_LINEAR)
-    return np.asarray(Image.fromarray(img).resize(size, Image.Resampling.BILINEAR))
-
-
-def _resize_depth(depthmap: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-    if cv2 is not None:
-        return cv2.resize(depthmap, size, interpolation=cv2.INTER_NEAREST)
-    return np.asarray(Image.fromarray(depthmap).resize(size, Image.Resampling.NEAREST))
 
 
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
@@ -79,7 +67,7 @@ class WaymoKittiFrame:
     camera_pose: np.ndarray
 
 
-class WaymoKittiPi3XDataset(load_pi3_base_dataset()):  # type: ignore[misc, valid-type]
+class WaymoKittiPi3XDataset(BaseDataset):
     def __init__(
         self,
         data_root: str | Path,
@@ -173,27 +161,16 @@ class WaymoKittiPi3XDataset(load_pi3_base_dataset()):  # type: ignore[misc, vali
                 "image_path": str(frame.image_path),
                 "depth_source": "placeholder_missing_dense_depth",
             }
-            if hasattr(self, "_crop_resize_if_necessary"):
-                img2, depth2, intrinsics2 = self._crop_resize_if_necessary(
-                    img,
-                    depthmap,
-                    intrinsics,
-                    (target_width, target_height),
-                    rng=rng,
-                    info=str(frame.image_path),
-                )[:3]
-                view["img"] = img2
-                view["depthmap"] = depth2.astype(np.float32)
-                view["camera_intrinsics"] = intrinsics2.astype(np.float32)
-            elif (width, height) != (target_width, target_height):
-                factor_w = target_width / width
-                factor_h = target_height / height
-                intrinsics[0, 0] *= factor_w
-                intrinsics[1, 1] *= factor_h
-                intrinsics[0, 2] *= factor_w
-                intrinsics[1, 2] *= factor_h
-                view["img"] = _resize_rgb_image(img, (target_width, target_height))
-                view["depthmap"] = _resize_depth(depthmap, (target_width, target_height)).astype(np.float32)
-                view["camera_intrinsics"] = intrinsics.astype(np.float32)
+            img2, depth2, intrinsics2 = self._crop_resize_if_necessary(
+                img,
+                depthmap,
+                intrinsics,
+                (target_width, target_height),
+                rng=rng,
+                info=str(frame.image_path),
+            )[:3]
+            view["img"] = img2
+            view["depthmap"] = depth2.astype(np.float32)
+            view["camera_intrinsics"] = intrinsics2.astype(np.float32)
             views.append(view)
         return views

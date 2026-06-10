@@ -2,11 +2,7 @@ import unittest
 
 import numpy as np
 
-from pi3_test_utils import install_fake_pi3
-
-install_fake_pi3()
-
-from unidata_skill.datasets import validate_pi3x_dataset, validate_pi3x_view
+from unidata_skill.datasets.pi3x_validator import validate_pi3x_dataset, validate_pi3x_view
 
 
 def make_view():

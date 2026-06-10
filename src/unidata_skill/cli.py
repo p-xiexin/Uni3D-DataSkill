@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 from typing import Any
 
 from .config import DatasetConfig, load_dataset_configs
+from .datasets.blendedmvg_dataset import BlendedMVGDataset
+from .datasets.kitti360_dataset import Kitti360Pi3XDataset
+from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset
+from .datasets.nuscenes_dataset import NuScenesPi3XDataset
 from .datasets.pi3x_validator import validate_pi3x_dataset
-from .pi3x import add_pi3_root
+from .datasets.waymo_kitti_dataset import WaymoKittiPi3XDataset
+from .datasets.wayve_dataset import WayveScenesPi3XDataset
 
 
 DATASET_LOADERS = {
     "kitti360": {
         "aliases": {"kitti360", "kitti-360"},
-        "module": "unidata_skill.datasets.kitti360_dataset",
-        "class": "Kitti360Pi3XDataset",
-        "root_arg": "kitti360_root",
+        "class": Kitti360Pi3XDataset,
+        "root_arg": "data_root",
         "default_resolution": "512x384",
         "defaults": {
             "cameras": ["image_00"],
@@ -24,12 +27,11 @@ DATASET_LOADERS = {
             "max_samples": 4,
             "batch_size": 1,
         },
-        "warning": "dense depth is not available in the first KITTI-360 workflow; depthmap is a placeholder",
+        "warning": "KITTI-360 dense depth is not read in this direct loader; depthmap is a placeholder",
     },
     "blendedmvs": {
         "aliases": {"blendedmvs", "blendedmvg"},
-        "module": "unidata_skill.datasets.blendedmvg_dataset",
-        "class": "BlendedMVGDataset",
+        "class": BlendedMVGDataset,
         "root_arg": "data_root",
         "default_resolution": "768x576",
         "defaults": {
@@ -42,8 +44,7 @@ DATASET_LOADERS = {
     },
     "kitti": {
         "aliases": {"kitti", "kitti-odometry"},
-        "module": "unidata_skill.datasets.kitti_odometry_dataset",
-        "class": "KittiOdometryPi3XDataset",
+        "class": KittiOdometryPi3XDataset,
         "root_arg": "data_root",
         "default_resolution": "512x384",
         "defaults": {
@@ -57,8 +58,7 @@ DATASET_LOADERS = {
     },
     "nuscenes": {
         "aliases": {"nuscenes", "nuScenes"},
-        "module": "unidata_skill.datasets.nuscenes_dataset",
-        "class": "NuScenesPi3XDataset",
+        "class": NuScenesPi3XDataset,
         "root_arg": "data_root",
         "default_resolution": "512x288",
         "defaults": {
@@ -72,8 +72,7 @@ DATASET_LOADERS = {
     },
     "wayve": {
         "aliases": {"wayve", "wayvescenes", "wayvescenes101"},
-        "module": "unidata_skill.datasets.wayve_dataset",
-        "class": "WayveScenesPi3XDataset",
+        "class": WayveScenesPi3XDataset,
         "root_arg": "data_root",
         "default_resolution": "512x288",
         "defaults": {
@@ -86,8 +85,7 @@ DATASET_LOADERS = {
     },
     "waymo-kitti": {
         "aliases": {"waymo-kitti", "waymo_kitti", "waymo-converted-kitti"},
-        "module": "unidata_skill.datasets.waymo_kitti_dataset",
-        "class": "WaymoKittiPi3XDataset",
+        "class": WaymoKittiPi3XDataset,
         "root_arg": "data_root",
         "default_resolution": "512x384",
         "defaults": {
@@ -118,7 +116,6 @@ def _loader_spec(dataset: str) -> dict[str, Any]:
 
 def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple[dict[str, Any], int, int, list[str]]:
     options = {**spec.get("defaults", {}), **config.options}
-    add_pi3_root()
 
     kwargs: dict[str, Any] = {spec["root_arg"]: config.root}
     if "sequences" in options:
@@ -154,8 +151,7 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
 def _build_dataset_from_config(config: DatasetConfig):
     spec = _loader_spec(config.dataset)
     kwargs, frame_num, max_samples, batch_size, warnings = _coerce_dataset_kwargs(spec, config)
-    module = importlib.import_module(spec["module"])
-    dataset_class = getattr(module, spec["class"])
+    dataset_class = spec["class"]
     dataset = dataset_class(**kwargs)
     return dataset, frame_num, max_samples, batch_size, warnings
 
@@ -175,19 +171,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="unidata-skill")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    validate_parser = subparsers.add_parser(
-        "validate-kitti360-pi3x",
-        help="Validate direct KITTI-360 loading through a Pi3X-compatible dataset.",
-    )
-    validate_parser.add_argument("--kitti360-root", required=True, help="KITTI-360 dataset root.")
-    validate_parser.add_argument("--sequence", action="append", dest="sequences", help="Sequence to include. Can be repeated.")
-    validate_parser.add_argument("--camera", action="append", dest="cameras", choices=["image_00", "image_01"], help="Camera to include. Can be repeated.")
-    validate_parser.add_argument("--frame-num", type=int, default=8)
-    validate_parser.add_argument("--stride", type=int, default=5)
-    validate_parser.add_argument("--resolution", default="512x384", help="Width x height, for example 512x384.")
-    validate_parser.add_argument("--max-samples", type=int, default=4)
-    validate_parser.add_argument("--batch-size", type=int, default=1)
-
     config_parser = subparsers.add_parser(
         "validate-config",
         help="Validate a Pi3X dataset from a label/root mapping config.",
@@ -200,26 +183,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-
-    if args.command == "validate-kitti360-pi3x":
-        result = _validate_config_entry(
-            DatasetConfig(
-                label="kitti360_cli",
-                dataset="kitti360",
-                root=args.kitti360_root,
-                options={
-                    "sequences": args.sequences,
-                    "cameras": args.cameras or ["image_00"],
-                    "frame_num": args.frame_num,
-                    "stride": args.stride,
-                    "resolution": args.resolution,
-                    "max_samples": args.max_samples,
-                    "batch_size": args.batch_size,
-                },
-            ),
-        )
-        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-        return 0 if result.status == "ok" else 2
 
     if args.command == "validate-config":
         configs = load_dataset_configs(args.config)

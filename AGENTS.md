@@ -10,21 +10,64 @@ Primary artifacts:
 - `面向多源三维数据集自动适配的 SKILL.md 设计研究.md`: Chinese research/design companion document.
 - `面向多源三维数据集自动适配的 SKILL.md 设计研究.pdf`: rendered PDF companion artifact.
 
-There is now a minimal implementation package and tests. The active first demo is a direct KITTI-360 to Pi3X dataloader validation workflow.
+There is now a minimal implementation package and tests. The active workflow is direct Pi3X-compatible dataloader validation for multiple raw or converted dataset layouts.
+
+## Required Local Environment
+
+Use the local conda environment named `huawei` for development, validation, and test commands.
+
+Confirmed local paths:
+
+```text
+Conda root: D:\miniconda3
+Conda executable: D:\miniconda3\Scripts\conda.exe
+Environment: D:\miniconda3\envs\huawei
+Python: D:\miniconda3\envs\huawei\python.exe
+Python version: 3.11.15
+```
+
+Before running repository commands in an interactive shell, activate it:
+
+```powershell
+conda activate huawei
+```
+
+In non-interactive PowerShell sessions where `conda` is not on `PATH`, call the environment Python directly:
+
+```powershell
+D:\miniconda3\envs\huawei\python.exe -m unittest discover -s tests -v
+```
+
+The Pi3 training repository is a required third-party checkout at:
+
+```text
+thirdparty/Pi3
+```
+
+This checkout should be `https://github.com/yyfz/Pi3.git` on the `training` branch and should be installed into the active `huawei` environment:
+
+```powershell
+git clone https://github.com/yyfz/Pi3.git thirdparty/Pi3
+cd thirdparty/Pi3
+git checkout training
+python -m pip install -r requirements.txt
+```
+
+Do not add `--pi3-root`, `PI3_ROOT` environment variables, or other alternate Pi3 path handling unless the user explicitly asks to reintroduce it. The project should resolve Pi3 from `thirdparty/Pi3`.
 
 ## Immediate Next Objective
 
-The next phase is to turn the research document into a minimal executable workflow. Do not try to support all documented datasets at once.
+The next phase is to keep turning the research document into executable direct dataloaders. Do not try to support all documented datasets at once.
 
-Recommended order for the active first demo:
+Recommended order for direct dataloader work:
 
 1. Keep the target schema definitions available for future conversion workflows.
-2. Implement a direct KITTI-360 dataloader that reads raw dataset files.
-3. Allow users to point at a local `yyfz/Pi3` training-branch checkout.
-4. Inherit the Pi3X training `BaseDataset` when available.
+2. Implement one direct dataloader at a time against that dataset's raw or converted layout.
+3. Use the fixed `thirdparty/Pi3` training-branch checkout.
+4. Inherit the Pi3X training `BaseDataset` directly.
 5. Validate dataloader samples and batches for paths, cameras, poses, depth placeholders, and frame integrity.
 
-The first MVP dataset is `KITTI-360`, focused on perspective rectified cameras and pose/calibration. Do not switch back to BlendedMVS unless the user explicitly asks.
+Treat KITTI-360 the same as the other direct dataloaders. Do not add dataset-specific CLI commands, import wrappers, or special validator helpers unless the user explicitly asks for a dataset-specific debug tool.
 
 ## Proposed Project Structure
 
@@ -101,7 +144,7 @@ source dataset root
   -> validation script/report
 ```
 
-Use direct dataloaders when the official dataset already provides stable image paths, calibration, poses, and frame ids. KITTI-360 belongs to this category for the first demo. Generated target-schema outputs are still useful for later exporters, but they are not required for the first direct dataloader demo.
+Use direct dataloaders when the official dataset already provides stable image paths, calibration, poses, and frame ids. KITTI-360, KITTI odometry, nuScenes table layouts, WayveScenes-style transforms, and Waymo KITTI-style converted layouts are handled as peer direct loaders. Generated target-schema outputs are still useful for later exporters, but they are not required for direct dataloader validation.
 
 ## Registry Requirements
 
@@ -143,7 +186,7 @@ Adapters should be implemented in phases when a dataset needs conversion or mate
 4. `materialize`: optionally copy, link, or convert assets into the target output tree.
 5. `validate`: produce QA reports and warnings.
 
-For direct-readable datasets such as the active KITTI-360 demo, skip `index`, `convert`, and `materialize` in the first slice. Implement the dataset class and dataloader validator directly against the raw dataset root.
+For direct-readable datasets, skip `index`, `convert`, and `materialize` in the first slice. Implement the dataset class directly against the raw dataset root and validate it through the shared `validate-config` workflow.
 
 Do not silently invent missing geometry. If pose, depth, scale, or calibration is estimated rather than provided, mark it as pseudo/estimated.
 
@@ -178,14 +221,14 @@ When editing Markdown:
 - Do not overwrite or revert user changes in `dataset_skill_design.md` or the Chinese companion documents.
 - Use short imperative commit messages, for example `Implement KITTI-360 Pi3X dataloader` or `Validate KITTI-360 dataloader`.
 
-## First Implementation Slice
+## Current Implementation Pattern
 
-The recommended first implementation slice is:
+The recommended implementation pattern for each direct dataloader is:
 
-1. Implement `Kitti360Pi3XDataset`.
-2. Read KITTI-360 perspective intrinsics and `cam0_to_world` poses.
-3. Directly sample frame windows from raw `data_2d_raw` image folders.
-4. Add a CLI validator for dataset samples and DataLoader batches.
-5. Add tests using a tiny synthetic KITTI-360 fixture tree.
+1. Implement one `*Pi3XDataset` class inheriting directly from Pi3 `BaseDataset`.
+2. Read that dataset's native image paths, calibration, poses, and optional geometry labels.
+3. Directly sample frame windows from the official or converted raw folders/tables.
+4. Register the loader in the shared `DATASET_LOADERS` registry.
+5. Add tests using a tiny synthetic fixture for that dataset layout.
 
-Only after this direct dataloader loop works should dense depth, LiDAR projection, semantic annotations, or target-schema conversion be added.
+Only after the direct dataloader loop works should dense depth, LiDAR projection, semantic annotations, or target-schema conversion be added.
