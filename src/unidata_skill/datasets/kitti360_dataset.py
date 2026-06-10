@@ -69,8 +69,22 @@ def _parse_pose_line(line: str, path: Path, line_no: int) -> tuple[int, np.ndarr
     return frame_id, pose
 
 
-def load_perspective_intrinsics(data_root: Path) -> dict[str, np.ndarray]:
-    path = data_root / "calibration" / "perspective.txt"
+def _path_roots(roots: dict[str, str | Path] | None) -> dict[str, Path]:
+    return {key: Path(value) for key, value in (roots or {}).items() if value is not None}
+
+
+def _optional_path_roots(roots: dict[str, str | Path | None] | None) -> dict[str, Path | None]:
+    return {key: None if value is None else Path(value) for key, value in (roots or {}).items()}
+
+
+def _require_dir(path: Path, name: str) -> Path:
+    if not path.is_dir():
+        raise FileNotFoundError(f"{name} directory not found: {path}")
+    return path
+
+
+def load_perspective_intrinsics(calibration_root: Path) -> dict[str, np.ndarray]:
+    path = calibration_root / "perspective.txt"
     records: dict[str, np.ndarray] = {}
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         parsed = _parse_matrix_line(line, path, line_no)
@@ -85,8 +99,8 @@ def load_perspective_intrinsics(data_root: Path) -> dict[str, np.ndarray]:
     return intrinsics
 
 
-def load_cam0_to_world(data_root: Path, sequence: str) -> dict[int, np.ndarray]:
-    path = data_root / "data_poses" / sequence / "cam0_to_world.txt"
+def load_cam0_to_world(poses_root: Path, sequence: str) -> dict[int, np.ndarray]:
+    path = poses_root / sequence / "cam0_to_world.txt"
     poses: dict[int, np.ndarray] = {}
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         parsed = _parse_pose_line(line, path, line_no)
@@ -95,11 +109,8 @@ def load_cam0_to_world(data_root: Path, sequence: str) -> dict[int, np.ndarray]:
     return poses
 
 
-def discover_sequences(data_root: Path) -> list[str]:
-    image_root = data_root / "data_2d_raw"
-    if not image_root.is_dir():
-        return []
-    return sorted(path.name for path in image_root.iterdir() if path.is_dir())
+def discover_sequences(images_root: Path) -> list[str]:
+    return sorted(path.name for path in images_root.iterdir() if path.is_dir())
 
 
 def _read_rgb_image(path: Path) -> np.ndarray | None:
@@ -131,16 +142,25 @@ class Kitti360Pi3XDataset(BaseDataset):
         frame_num: int = 8,
         stride: int = 5,
         resolution: list[int] | tuple[int, int] = (512, 384),
+        layout: str = "official",
+        roots: dict[str, str | Path] | None = None,
+        optional_roots: dict[str, str | Path | None] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
         self.dataset_label = "KITTI360Pi3X"
         self.data_root = Path(data_root)
-        self.sequences = sequences or discover_sequences(self.data_root)
+        self.layout = layout
+        component_roots = _path_roots(roots)
+        self.optional_roots = _optional_path_roots(optional_roots)
+        self.calibration_root = _require_dir(component_roots.get("calibration", self.data_root / "calibration"), "roots.calibration")
+        self.images_root = _require_dir(component_roots.get("images", self.data_root / "data_2d_raw"), "roots.images")
+        self.poses_root = _require_dir(component_roots.get("poses", self.data_root / "data_poses"), "roots.poses")
+        self.sequences = sequences or discover_sequences(self.images_root)
         self.cameras = cameras
         self.stride = stride
-        self.intrinsics = load_perspective_intrinsics(self.data_root)
-        self.poses = {sequence: load_cam0_to_world(self.data_root, sequence) for sequence in self.sequences}
+        self.intrinsics = load_perspective_intrinsics(self.calibration_root)
+        self.poses = {sequence: load_cam0_to_world(self.poses_root, sequence) for sequence in self.sequences}
         self.frames = self._build_frames()
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
@@ -156,7 +176,7 @@ class Kitti360Pi3XDataset(BaseDataset):
             for camera_id in self.cameras:
                 if camera_id not in self.intrinsics:
                     continue
-                image_dir = self.data_root / "data_2d_raw" / sequence / camera_id / "data_rect"
+                image_dir = self.images_root / sequence / camera_id / "data_rect"
                 if not image_dir.is_dir():
                     continue
                 for image_path in sorted(image_dir.glob("*.png")):

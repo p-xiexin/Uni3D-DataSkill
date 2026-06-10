@@ -177,8 +177,9 @@ def validate_pi3x_dataset(
     checked_batches = 0
     try:
         from torch.utils.data import DataLoader
+        from datasets.base.base_dataset import unified_collate_fn
 
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, collate_fn=unified_collate_fn)
         for checked_batches, batch in enumerate(loader, start=1):
             errors.extend(validate_pi3x_batch(batch, checked_batches - 1))
             if checked_batches >= 1:

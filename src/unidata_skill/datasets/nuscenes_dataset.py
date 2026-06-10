@@ -29,6 +29,20 @@ def _read_rgb_image(path: Path) -> np.ndarray | None:
         return None
 
 
+def _path_roots(roots: dict[str, str | Path] | None) -> dict[str, Path]:
+    return {key: Path(value) for key, value in (roots or {}).items() if value is not None}
+
+
+def _optional_path_roots(roots: dict[str, str | Path | None] | None) -> dict[str, Path | None]:
+    return {key: None if value is None else Path(value) for key, value in (roots or {}).items()}
+
+
+def _require_dir(path: Path, name: str) -> Path:
+    if not path.is_dir():
+        raise FileNotFoundError(f"{name} directory not found: {path}")
+    return path
+
+
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
     if len(resolution) == 1 and isinstance(resolution[0], (list, tuple)):  # type: ignore[index]
         resolution = resolution[0]  # type: ignore[assignment]
@@ -84,6 +98,9 @@ class NuScenesPi3XDataset(BaseDataset):
         frame_num: int = 6,
         stride: int = 1,
         resolution: list[int] | tuple[int, int] = (512, 288),
+        layout: str = "official",
+        roots: dict[str, str | Path] | None = None,
+        optional_roots: dict[str, str | Path | None] | None = None,
         verbose: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -91,18 +108,32 @@ class NuScenesPi3XDataset(BaseDataset):
         self.dataset_label = "NuScenesPi3X"
         self.data_root = Path(data_root)
         self.version = version
+        self.layout = layout
         self.cameras = cameras
         self.stride = stride
         self.verbose = verbose
+        component_roots = _path_roots(roots)
+        self.optional_roots = _optional_path_roots(optional_roots)
+        self.table_root = _require_dir(component_roots.get("tables", self.data_root / version), "roots.tables")
+        self.data_blob_root = _require_dir(component_roots.get("data", self.data_root), "roots.data")
+        self.samples_root = component_roots.get("samples")
+        if self.samples_root is not None:
+            _require_dir(self.samples_root, "roots.samples")
 
-        table_root = self.data_root / version
-        self.frames = self._build_frames(table_root)
+        self.frames = self._build_frames(self.table_root)
         self.sequences = sorted(self.frames)
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
 
     def __len__(self) -> int:
         return len(self.sequences)
+
+    def _resolve_data_path(self, filename: str) -> Path:
+        rel_path = Path(filename)
+        parts = rel_path.parts
+        if self.samples_root is not None and parts and parts[0] == "samples":
+            return self.samples_root.joinpath(*parts[1:])
+        return self.data_blob_root / rel_path
 
     def _build_frames(self, table_root: Path) -> dict[str, list[NuScenesFrame]]:
         scenes = {item["token"]: item for item in _read_json(table_root / "scene.json")}
@@ -135,7 +166,7 @@ class NuScenesPi3XDataset(BaseDataset):
                     scene=scene,
                     channel=channel,
                     frame_id=str(item.get("timestamp", item["token"])),
-                    image_path=self.data_root / item["filename"],
+                    image_path=self._resolve_data_path(item["filename"]),
                     camera_intrinsics=np.array(calib["camera_intrinsic"], dtype=np.float32),
                     camera_pose=camera_to_global.astype(np.float32),
                     sample_token=item["sample_token"],

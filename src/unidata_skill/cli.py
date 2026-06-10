@@ -118,6 +118,9 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
     options = {**spec.get("defaults", {}), **config.options}
 
     kwargs: dict[str, Any] = {spec["root_arg"]: config.root}
+    for key in ("layout", "roots", "optional_roots", "list_name"):
+        if key in options:
+            kwargs[key] = options[key]
     if "sequences" in options:
         kwargs["sequences"] = options["sequences"]
     if "cameras" in options:

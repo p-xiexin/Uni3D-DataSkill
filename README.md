@@ -73,7 +73,18 @@ Example:
     {
       "label": "kitti360_train",
       "dataset": "kitti360",
-      "root": "/path/to/KITTI-360",
+      "root": "/mnt/datasets/KITTI-360",
+      "layout": "official",
+      "roots": {
+        "calibration": "/mnt/datasets/KITTI-360/calibration",
+        "images": "/mnt/datasets/KITTI-360/data_2d_raw",
+        "poses": "/mnt/datasets/KITTI-360/data_poses"
+      },
+      "optional_roots": {
+        "lidar": "/mnt/datasets/KITTI-360/data_3d_raw",
+        "semantics_2d": null,
+        "semantics_3d": null
+      },
       "sequences": ["2013_05_28_drive_0000_sync"],
       "cameras": ["image_00"],
       "frame_num": 8,
@@ -87,7 +98,10 @@ Example:
 ```
 
 `root` should be a local path or an already mounted path that the current
-Python process can read.
+Python process can read. If the dataset follows the loader's default official
+layout under `root`, `roots` can be omitted. Use `roots` when required
+components are mounted separately, and use `optional_roots` for additional
+modalities that may be unavailable.
 
 Supported dataset keys:
 

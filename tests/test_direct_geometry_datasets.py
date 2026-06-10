@@ -9,7 +9,13 @@ import numpy as np
 from PIL import Image
 
 from unidata_skill.cli import main
-from unidata_skill.datasets import KittiOdometryPi3XDataset, NuScenesPi3XDataset, WaymoKittiPi3XDataset, WayveScenesPi3XDataset
+from unidata_skill.datasets import (
+    BlendedMVGDataset,
+    KittiOdometryPi3XDataset,
+    NuScenesPi3XDataset,
+    WaymoKittiPi3XDataset,
+    WayveScenesPi3XDataset,
+)
 
 
 def _write_image(path: Path, color: tuple[int, int, int] = (20, 40, 60)) -> None:
@@ -104,7 +110,43 @@ def write_tiny_wayve(root: Path, scene: str = "scene_000", frame_count: int = 4)
     )
 
 
+def write_tiny_blendedmvg(root: Path, scene: str = "5a6a0d8e8d05f00001a3b2d2", frame_count: int = 3) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    root.joinpath("BlendedMVG_list.txt").write_text(f"{scene}\n", encoding="utf-8")
+    image_dir = root / scene / "blended_images"
+    for idx in range(frame_count):
+        _write_image(image_dir / f"{idx:08d}.jpg", color=(idx * 20, 70, 90))
+
+
 class PriorityGeometryDatasetTests(unittest.TestCase):
+    def test_blendedmvg_uses_official_list_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_tiny_blendedmvg(root)
+
+            dataset = BlendedMVGDataset(data_root=str(root), mode="train", frame_num=2, resolution=[(4, 4)])
+
+            self.assertEqual(len(dataset), 1)
+            self.assertEqual(dataset.num_imgs[dataset.sequences[0]], 3)
+
+    def test_blendedmvg_accepts_explicit_component_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "official"
+            dummy_root = Path(tmpdir) / "dummy"
+            dummy_root.mkdir()
+            write_tiny_blendedmvg(root)
+
+            dataset = BlendedMVGDataset(
+                data_root=str(dummy_root),
+                mode="train",
+                frame_num=2,
+                resolution=[(4, 4)],
+                roots={"list": str(root / "BlendedMVG_list.txt"), "scenes": str(root)},
+            )
+
+            self.assertEqual(len(dataset), 1)
+            self.assertEqual(dataset.num_imgs[dataset.sequences[0]], 3)
+
     def test_kitti_odometry_reads_pi3x_views(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -120,6 +162,25 @@ class PriorityGeometryDatasetTests(unittest.TestCase):
             self.assertEqual(views[0]["camera_pose"].shape, (4, 4))
             self.assertEqual(views[0]["depth_source"], "placeholder_missing_dense_depth")
 
+    def test_kitti_odometry_accepts_explicit_component_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "official"
+            dummy_root = Path(tmpdir) / "dummy"
+            dummy_root.mkdir()
+            write_tiny_kitti_odometry(root)
+
+            dataset = KittiOdometryPi3XDataset(
+                dummy_root,
+                roots={"sequences": str(root / "sequences"), "poses": str(root / "poses")},
+                sequences=["00"],
+                frame_num=3,
+                resolution=(4, 4),
+            )
+            views = dataset[0]
+
+            self.assertEqual(len(views), 3)
+            self.assertTrue(str(root / "sequences") in views[0]["image_path"])
+
     def test_nuscenes_tables_read_pi3x_views(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -134,6 +195,25 @@ class PriorityGeometryDatasetTests(unittest.TestCase):
             self.assertEqual(views[0]["label"], "scene-0001")
             self.assertIn("sample_data_token", views[0])
 
+    def test_nuscenes_accepts_explicit_component_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "official"
+            dummy_root = Path(tmpdir) / "dummy"
+            dummy_root.mkdir()
+            write_tiny_nuscenes(root)
+
+            dataset = NuScenesPi3XDataset(
+                dummy_root,
+                version="v1.0-mini",
+                roots={"tables": str(root / "v1.0-mini"), "samples": str(root / "samples")},
+                frame_num=2,
+                resolution=(4, 4),
+            )
+            views = dataset[0]
+
+            self.assertEqual(len(views), 2)
+            self.assertTrue(str(root / "samples") in views[0]["image_path"])
+
     def test_wayve_transforms_read_pi3x_views(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -147,6 +227,25 @@ class PriorityGeometryDatasetTests(unittest.TestCase):
             self.assertEqual(views[0]["dataset"], "WayveScenesPi3X")
             self.assertEqual(views[0]["label"], "scene_000")
 
+    def test_wayve_accepts_explicit_scene_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "official"
+            dummy_root = Path(tmpdir) / "dummy"
+            dummy_root.mkdir()
+            write_tiny_wayve(root)
+
+            dataset = WayveScenesPi3XDataset(
+                dummy_root,
+                roots={"scenes": str(root)},
+                scene_dirs=["scene_000"],
+                frame_num=2,
+                resolution=(4, 4),
+            )
+            views = dataset[0]
+
+            self.assertEqual(len(views), 2)
+            self.assertTrue(str(root) in views[0]["image_path"])
+
     def test_waymo_kitti_style_reads_pi3x_views(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -159,6 +258,25 @@ class PriorityGeometryDatasetTests(unittest.TestCase):
             self.assertEqual(len(views), 2)
             self.assertEqual(views[0]["dataset"], "WaymoKittiPi3X")
             self.assertEqual(views[0]["depth_source"], "placeholder_missing_dense_depth")
+
+    def test_waymo_kitti_style_accepts_explicit_component_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "official"
+            dummy_root = Path(tmpdir) / "dummy"
+            dummy_root.mkdir()
+            write_tiny_kitti_odometry(root)
+
+            dataset = WaymoKittiPi3XDataset(
+                dummy_root,
+                roots={"sequences": str(root / "sequences"), "poses": str(root / "poses")},
+                sequences=["00"],
+                frame_num=2,
+                resolution=(4, 4),
+            )
+            views = dataset[0]
+
+            self.assertEqual(len(views), 2)
+            self.assertTrue(str(root / "sequences") in views[0]["image_path"])
 
     def test_cli_validate_config_supports_kitti(self):
         with tempfile.TemporaryDirectory() as tmpdir:

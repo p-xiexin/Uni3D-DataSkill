@@ -1,14 +1,21 @@
 import sys
+import types
 from pathlib import Path
 
 
 PI3_ROOT = Path(__file__).resolve().parents[3] / "thirdparty" / "Pi3"
 if str(PI3_ROOT) not in sys.path:
     sys.path.insert(0, str(PI3_ROOT))
+if "datasets" not in sys.modules:
+    pi3_datasets = types.ModuleType("datasets")
+    pi3_datasets.__path__ = [str(PI3_ROOT / "datasets")]  # type: ignore[attr-defined]
+    pi3_datasets.__package__ = "datasets"
+    sys.modules["datasets"] = pi3_datasets
 
 from .pi3x_validator import ValidationResult, validate_pi3x_dataset, validate_pi3x_view
 
 __all__ = [
+    "BlendedMVGDataset",
     "Kitti360Pi3XDataset",
     "KittiOdometryPi3XDataset",
     "NuScenesPi3XDataset",
@@ -21,6 +28,10 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    if name == "BlendedMVGDataset":
+        from .blendedmvg_dataset import BlendedMVGDataset
+
+        return BlendedMVGDataset
     if name == "Kitti360Pi3XDataset":
         from .kitti360_dataset import Kitti360Pi3XDataset
 

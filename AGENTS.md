@@ -161,7 +161,18 @@ Dataset configs are JSON files with entries like:
     {
       "label": "kitti360_train",
       "dataset": "kitti360",
-      "root": "/path/to/KITTI-360",
+      "root": "/mnt/datasets/KITTI-360",
+      "layout": "official",
+      "roots": {
+        "calibration": "/mnt/datasets/KITTI-360/calibration",
+        "images": "/mnt/datasets/KITTI-360/data_2d_raw",
+        "poses": "/mnt/datasets/KITTI-360/data_poses"
+      },
+      "optional_roots": {
+        "lidar": "/mnt/datasets/KITTI-360/data_3d_raw",
+        "semantics_2d": null,
+        "semantics_3d": null
+      },
       "sequences": ["2013_05_28_drive_0000_sync"],
       "frame_num": 8,
       "stride": 5,
@@ -174,7 +185,9 @@ Dataset configs are JSON files with entries like:
 ```
 
 Use a local path or an already mounted path that the current Python process can
-read.
+read. If an official dataset is laid out directly under `root`, component
+`roots` can be omitted. If components are stored separately, set `roots` for
+required inputs and `optional_roots` for modalities that may be unavailable.
 
 ## Validation Expectations
 

@@ -14,6 +14,25 @@ class DatasetConfig:
     options: dict[str, Any]
 
 
+def _validate_path_mapping(entry: dict[str, Any], key: str, entry_name: str, allow_null: bool) -> None:
+    if key not in entry:
+        return
+    mapping = entry[key]
+    if not isinstance(mapping, dict):
+        raise ValueError(f"{entry_name}.{key} must be an object")
+    for root_name, value in mapping.items():
+        if not isinstance(root_name, str) or not root_name:
+            raise ValueError(f"{entry_name}.{key} contains an invalid root name")
+        if value is None:
+            if allow_null:
+                continue
+            raise ValueError(f"{entry_name}.{key}.{root_name} must be a path, got null")
+        if not isinstance(value, str):
+            raise ValueError(f"{entry_name}.{key}.{root_name} must be a path string")
+        if not Path(value).exists():
+            raise FileNotFoundError(f"{entry_name}.{key}.{root_name} does not exist: {value}")
+
+
 def load_dataset_configs(path: str | Path) -> list[DatasetConfig]:
     config_path = Path(path)
     data = json.loads(config_path.read_text(encoding="utf-8"))
@@ -30,6 +49,9 @@ def load_dataset_configs(path: str | Path) -> list[DatasetConfig]:
         root = entry.get("root") or entry.get("path")
         if not label or not dataset or not root:
             raise ValueError(f"datasets[{index}] must include label, dataset, and root")
+        entry_name = f"datasets[{index}]"
+        _validate_path_mapping(entry, "roots", entry_name, allow_null=False)
+        _validate_path_mapping(entry, "optional_roots", entry_name, allow_null=True)
         options = {key: value for key, value in entry.items() if key not in {"label", "dataset", "type", "root", "path"}}
         configs.append(DatasetConfig(label=str(label), dataset=str(dataset).lower(), root=str(root), options=options))
     return configs

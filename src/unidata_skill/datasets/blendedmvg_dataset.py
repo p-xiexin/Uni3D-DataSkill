@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 import os
-import os.path as osp
+from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 
 from datasets.base.base_dataset import BaseDataset
+
+
+def _path_roots(roots: dict[str, str | Path] | None) -> dict[str, Path]:
+    return {key: Path(value) for key, value in (roots or {}).items() if value is not None}
+
+
+def _optional_path_roots(roots: dict[str, str | Path | None] | None) -> dict[str, Path | None]:
+    return {key: None if value is None else Path(value) for key, value in (roots or {}).items()}
+
+
+def _require_dir(path: Path, name: str) -> Path:
+    if not path.is_dir():
+        raise FileNotFoundError(f"{name} directory not found: {path}")
+    return path
 
 
 def _strip_inline_comment(line: str) -> str:
@@ -92,17 +106,37 @@ def read_pfm(filename: str) -> np.ndarray:
 
 
 class BlendedMVGDataset(BaseDataset):
-    def __init__(self, data_root: str | None = None, verbose: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        data_root: str | None = None,
+        verbose: bool = False,
+        layout: str = "official",
+        roots: dict[str, str | Path] | None = None,
+        optional_roots: dict[str, str | Path | None] | None = None,
+        list_name: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         if data_root is None:
             raise ValueError("data_root is required")
 
         self.verbose = verbose
         self.dataset_label = "BlendedMVG"
-        self.data_root = data_root
+        self.data_root = Path(data_root)
+        self.layout = layout
+        component_roots = _path_roots(roots)
+        self.optional_roots = _optional_path_roots(optional_roots)
+        self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")
+        self.images_root = component_roots.get("images")
+        self.depth_root = component_roots.get("depth")
+        self.cameras_root = component_roots.get("cameras")
+        for name, path in (("roots.images", self.images_root), ("roots.depth", self.depth_root), ("roots.cameras", self.cameras_root)):
+            if path is not None:
+                _require_dir(path, name)
 
-        list_file = osp.join(data_root, "BlendedMVG_training.txt" if self.mode == "train" else "validation_list.txt")
-        if not osp.exists(list_file):
+        default_list_name = list_name or ("BlendedMVG_list.txt" if self.mode == "train" else "BlendedMVS_list.txt")
+        list_file = component_roots.get("list", self.data_root / default_list_name)
+        if not list_file.is_file():
             raise FileNotFoundError(f"List file not found: {list_file}")
 
         with open(list_file, "r", encoding="utf-8") as f:
@@ -111,12 +145,12 @@ class BlendedMVGDataset(BaseDataset):
 
         if self.verbose:
             print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
-        print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {data_root}", flush=True)
+        print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.scenes_root}", flush=True)
 
         self.num_imgs = {}
         for seq in self.sequences:
-            img_path = osp.join(data_root, seq, "blended_images")
-            if osp.exists(img_path):
+            img_path = self._scene_component_dir(seq, "blended_images", self.images_root)
+            if img_path.is_dir():
                 img_files = [name for name in os.listdir(img_path) if name.endswith(".jpg") and not name.endswith("_masked.jpg")]
                 self.num_imgs[seq] = len(img_files)
             else:
@@ -124,6 +158,11 @@ class BlendedMVGDataset(BaseDataset):
 
     def __len__(self) -> int:
         return len(self.sequences)
+
+    def _scene_component_dir(self, scene: str, component: str, override_root: Path | None) -> Path:
+        if override_root is not None:
+            return override_root / scene / component
+        return self.scenes_root / scene / component
 
     def _get_views(self, index: int, resolution: tuple[int, int], rng: np.random.Generator, is_test: bool = False):
         scene = self.sequences[index]
@@ -149,37 +188,39 @@ class BlendedMVGDataset(BaseDataset):
         self.this_views_info = dict(scene=scene, idxs=list(idxs))
 
         views = []
-        scene_path = osp.join(self.data_root, scene)
+        image_dir = self._scene_component_dir(scene, "blended_images", self.images_root)
+        depth_dir = self._scene_component_dir(scene, "rendered_depth_maps", self.depth_root)
+        camera_dir = self._scene_component_dir(scene, "cams", self.cameras_root)
         for idx in idxs:
             img_name = f"{idx:08d}.jpg"
-            img_path = osp.join(scene_path, "blended_images", img_name)
-            depth_path = osp.join(scene_path, "rendered_depth_maps", f"{idx:08d}.pfm")
-            cam_path = osp.join(scene_path, "cams", f"{idx:08d}_cam.txt")
+            img_path = image_dir / img_name
+            depth_path = depth_dir / f"{idx:08d}.pfm"
+            cam_path = camera_dir / f"{idx:08d}_cam.txt"
 
-            if not osp.exists(img_path):
+            if not img_path.exists():
                 print(f"Warning: Image not found: {img_path}", flush=True)
                 continue
-            if not osp.exists(depth_path):
+            if not depth_path.exists():
                 print(f"Warning: Depth not found: {depth_path}", flush=True)
                 continue
-            if not osp.exists(cam_path):
+            if not cam_path.exists():
                 print(f"Warning: Camera not found: {cam_path}", flush=True)
                 continue
 
-            img = cv2.imread(img_path)
+            img = cv2.imread(str(img_path))
             if img is None:
                 print(f"Warning: Failed to load image: {img_path}", flush=True)
                 continue
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
             try:
-                depthmap = read_pfm(depth_path)
+                depthmap = read_pfm(str(depth_path))
             except Exception as exc:
                 print(f"Warning: Failed to load depth: {depth_path}, error: {exc}", flush=True)
                 continue
 
             try:
-                camera_pose, intrinsics = _read_camera_file(cam_path)
+                camera_pose, intrinsics = _read_camera_file(str(cam_path))
             except Exception as exc:
                 print(f"Warning: Failed to load camera: {cam_path}, error: {exc}", flush=True)
                 intrinsics = np.array(
@@ -194,7 +235,7 @@ class BlendedMVGDataset(BaseDataset):
                 intrinsics,
                 resolution,
                 rng=rng,
-                info=img_path,
+                info=str(img_path),
             )
 
             views.append(

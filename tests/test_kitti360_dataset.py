@@ -70,6 +70,47 @@ class Kitti360Pi3XDatasetTests(unittest.TestCase):
             self.assertEqual(views[0]["depth_source"], "placeholder_missing_dense_depth")
             self.assertTrue(Path(views[0]["image_path"]).is_file())
 
+    def test_dataset_accepts_explicit_component_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "official"
+            dummy_root = Path(tmpdir) / "dummy"
+            dummy_root.mkdir()
+            write_tiny_kitti360(root)
+
+            dataset = Kitti360Pi3XDataset(
+                data_root=dummy_root,
+                roots={
+                    "calibration": str(root / "calibration"),
+                    "images": str(root / "data_2d_raw"),
+                    "poses": str(root / "data_poses"),
+                },
+                sequences=[SEQUENCE],
+                frame_num=3,
+                stride=1,
+                resolution=(4, 4),
+            )
+
+            views = dataset[0]
+            self.assertEqual(len(views), 3)
+            self.assertTrue(str(root / "data_2d_raw") in views[0]["image_path"])
+
+    def test_dataset_preserves_unavailable_optional_roots(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            write_tiny_kitti360(root)
+
+            dataset = Kitti360Pi3XDataset(
+                data_root=root,
+                sequences=[SEQUENCE],
+                frame_num=3,
+                stride=1,
+                resolution=(4, 4),
+                optional_roots={"lidar": None},
+            )
+
+            self.assertIn("lidar", dataset.optional_roots)
+            self.assertIsNone(dataset.optional_roots["lidar"])
+
     def test_cli_validate_config_selects_dataset_by_label(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -88,6 +129,11 @@ class Kitti360Pi3XDatasetTests(unittest.TestCase):
                                 "stride": 1,
                                 "resolution": "4x4",
                                 "max_samples": 1,
+                                "roots": {
+                                    "calibration": str(root / "calibration"),
+                                    "images": str(root / "data_2d_raw"),
+                                    "poses": str(root / "data_poses"),
+                                },
                             }
                         ]
                     }

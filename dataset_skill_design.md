@@ -360,21 +360,10 @@ Metadata：
 }
 ```
 
-格式/目录：每个 scene 目录通常包含：
+Format/layout: use the official ASE data format page as the source of truth; do not duplicate the full tree here.
+- https://facebookresearch.github.io/projectaria_tools/docs/open_datasets/aria_synthetic_environments_dataset/ase_data_format
 
-```text
-<scene>/
-├── rgb/*.jpg
-├── depth/*.png
-├── instances/*.png
-├── ase_scene_language.txt
-├── trajectory.txt
-├── semidense_points.csv.gz
-├── semidense_observations.csv.gz
-└── object_instances_to_classes.json
-```
-
-RGB 为 fisheye JPEG，通常 10 FPS；depth 为 16-bit PNG，单位为毫米，且定义为沿相机 ray 的距离；instance mask 为 16-bit PNG，像素值表示 object instance id。`trajectory.txt` 保存 10 FPS 相机轨迹。
+Reader notes: parse fisheye RGB, 16-bit ray-distance depth, instance masks, trajectory, semidense points/observations, scene language, and object-instance mapping according to the official schema. Sample files still need to be inspected before conversion.
 
 目标转换：RGB 复制到 `rgb/`；depth 需从 ray distance 转换或至少标记为 `ray_distance_m`；instance mask 写入 `instance/`；`object_instances_to_classes.json` 写入 class mapping；`trajectory.txt` 转为 `poses.jsonl`；semidense CSV 写入 `point_clouds/semidense_points.ply/npz`。
 
@@ -418,9 +407,12 @@ Metadata：
 }
 ```
 
-格式/目录：官方 `DATA.md` 说明常见文件包括 `.png` RGB/depth/confidence、`.pincam` 相机内参、`.json` 3D annotation、`.traj` timestamp + axis-angle + translation、`.ply` mesh/point cloud、`.mov` 视频、`_pose.txt` 逐帧 pose。
+Format/layout: use the official ARKitScenes `DATA.md` for raw, 3dod, and depth upsampling asset groups.
+- https://github.com/apple/ARKitScenes/blob/main/DATA.md
 
-目标转换：选择 `raw` 或 `upsampling` 子集时，抽取 RGB/depth/confidence/pose/intrinsics；选择 `3dod` 子集时，额外抽取 3D bounding boxes 和 scene mesh。`.traj` 或 `_pose.txt` 转换为 `T_c2w` 前必须确认方向。depth 通常为 metric depth，但需用样本确认单位与尺度。
+Reader notes: first choose the asset group, then parse `.pincam`, `.traj`, JSON annotations, PLY meshes, MOV/video assets, depth, confidence, and image files according to that group. Do frame-level joins explicitly.
+
+目标转换：选择 `raw` 或 `depth_upsampling` 子集时，抽取 RGB/depth/confidence/pose/intrinsics；选择 `threedod` 子集时，额外抽取 3D bounding boxes 和 scene mesh。`.traj` 或 `_pose.txt` 转换为 `T_c2w` 前必须确认方向。depth 通常为 metric depth，但需用样本确认单位与尺度。
 
 风险点：ARKitScenes 存在多个下载资产组，字段不完全一致；部分帧 pose 可能缺失或无效。必须做 frame-level join 和 confidence mask 过滤。
 
@@ -462,16 +454,10 @@ Metadata：
 }
 ```
 
-格式/目录：常见组织为：
+Format/layout: use the official BDD100K repository and task documentation for images, videos, and label package layouts.
+- https://github.com/bdd100k/bdd100k
 
-```text
-bdd100k/
-├── videos/
-├── images/
-└── labels/
-```
-
-labels 多为 JSON；`images/100k` 通常是从视频抽取的关键帧；不同任务有不同 label schema，例如 detection、lane、drivable map、segmentation。
+Reader notes: BDD100K is RGB/video plus 2D task labels. It has no official GT camera pose or depth for this project, so any generated geometry must be marked as estimated or pseudo labels.
 
 目标转换：只可直接构建 RGB + 2D semantics/instances 的前馈弱监督数据。若目标必须包含 pose/depth，需要额外用 SfM/SLAM/单目深度估计生成伪标签。BDD100K 更适合做开放道路场景的外观/语义预训练，而非几何强监督。
 
@@ -514,20 +500,10 @@ Metadata：
 }
 ```
 
-格式/目录：常见结构：
+Format/layout: use the official BlendedMVS repository README for list files, project ids, `blended_images`, `cams/pair.txt`, `*_cam.txt`, and `rendered_depth_maps`.
+- https://github.com/YoYo000/BlendedMVS
 
-```text
-BlendedMVS/
-├── training_list.txt
-├── validation_list.txt
-└── <scene_id>/
-    ├── blended_images/*.jpg
-    ├── cams/pair.txt
-    ├── cams/*_cam.txt
-    └── rendered_depth_maps/*.pfm
-```
-
-`pair.txt` 给出参考视图与源视图候选；`*_cam.txt` 保存外参、内参、depth range；depth map 常为 `.pfm`。
+Reader notes: project ids come from official list files; camera files follow the MVSNet-style format; depth maps are PFM files. This repo should use official list files or explicit `roots.list`, not local derived list names.
 
 目标转换：这是最适合直接转换成前馈多视图几何格式的数据集之一。读取 `pair.txt` 生成 `pairs.jsonl`；读取 `*_cam.txt` 生成 `cameras.json` 与 `poses.jsonl`；`.pfm` depth 转为 `.npy/.exr` 或保留并标注；RGB 转到 `rgb/`。
 
@@ -571,22 +547,11 @@ Metadata：
 }
 ```
 
-格式/目录：典型 v2 结构：
+Format/layout: use the official CO3D repositories for category, sequence, frame annotation, sequence annotation, image, mask, depth, and point-cloud organization.
+- https://github.com/facebookresearch/co3d/tree/v1
+- https://github.com/facebookresearch/co3d
 
-```text
-<category>/
-└── <sequence>/
-    ├── images/
-    ├── masks/
-    ├── depths/
-    ├── depth_masks/
-    ├── pointcloud.ply
-    ├── frame_annotations.jgz
-    └── sequence_annotations.jgz
-set_lists/*.json
-```
-
-`frame_annotations.jgz` 与 `sequence_annotations.jgz` 是 gzip JSON，保存 dataclass 风格的帧/序列标注，包括 camera、image、depth、mask、point cloud 等索引。
+Reader notes: `frame_annotations.jgz` and `sequence_annotations.jgz` are the authoritative indexes. Resolve paths from annotations instead of guessing from directory names.
 
 目标转换：按 category/sequence 映射为 scene；frame annotations 转 `frames.jsonl/cameras.json/poses.jsonl`；mask 写 `instance/valid_mask`；depth 写 `depth/`；pointcloud 写 `point_clouds/pointcloud.ply`。object-centric 数据默认以物体为场景中心，适合 pair/multiview 训练。
 
@@ -630,24 +595,11 @@ Metadata：
 }
 ```
 
-格式/目录：常见样例结构：
+Format/layout: use the official DL3DV-10K page and Hugging Face dataset page for scene/video shards, COLMAP outputs, transforms, and image folders.
+- https://dl3dv-10k.github.io/DL3DV-10K/
+- https://huggingface.co/datasets/DL3DV/DL3DV-10K
 
-```text
-<scene>/
-├── video.mp4
-├── images/
-├── images_2/
-├── images_4/
-├── images_8/
-├── transforms.json
-└── colmap/
-    ├── database.db
-    ├── features.h5
-    ├── matches.h5
-    ├── pairs-netvlad.txt
-    ├── global-feats-netvlad.h5
-    └── sparse/0/{cameras.bin, images.bin, points3D.bin}
-```
+Reader notes: different shards may contain different derived assets. Prefer explicit `transforms.json` or COLMAP sparse models, then verify filename/frame/pose alignment from samples.
 
 目标转换：优先使用 `transforms.json` 或 COLMAP `cameras/images/points3D` 生成 camera/pose/point cloud；`pairs-netvlad.txt` 可转为候选 pair；RGB 使用 downsampled images 控制训练成本。若 `transforms.json` 是 Nerfstudio/OpenGL convention，需要转换到 OpenCV camera。
 
@@ -734,7 +686,10 @@ Metadata：
 }
 ```
 
-格式/目录：典型 scene 包含 `_detail/` 和 `images/`。`_detail` 中有 `metadata_scene.csv`、camera orientation/position hdf5、mesh/object metadata、bounding boxes 等；`images` 中包含 `scene_cam_##_final_hdf5`、`geometry_hdf5`、`semantic_hdf5` 等，字段如 `depth_meters.hdf5`、`normal_cam.hdf5`、`position.hdf5`、`semantic.hdf5`、`semantic_instance.hdf5`。
+Format/layout: use the official Hypersim repository documentation for scene ids, `_detail`, images, metadata CSV files, and HDF5 render passes.
+- https://github.com/apple/ml-hypersim
+
+Reader notes: parse camera trajectories, intrinsics, render entity ids, depth, normal, semantic, and metadata from official files. Use official metadata to filter invalid scenes or frames.
 
 目标转换：直接抽取 RGB、depth_meters、normal、semantic、semantic_instance、camera trajectory。由于 Hypersim 的 depth/camera convention 有明确说明，转换时必须保留原始 convention 并统一到 OpenCV target。object metadata/3D bbox 写入 annotations。
 
@@ -778,7 +733,11 @@ Metadata：
 }
 ```
 
-格式/目录：常见数据包括 color/depth images、intrinsics、poses、textured meshes、floor plans、house_segmentations、region/object semantics。图像命名通常包含 scan/region/panorama/view 等字段；mesh `.ply` 可包含 material/segment/category 等属性；`.fsegs.json` 和 `.semseg.json` 存储面片分割和语义聚合。
+Format/layout: use the official Matterport3D page and repository for release assets, download options, scans, panoramas, meshes, and semantic files.
+- https://niessner.github.io/Matterport/
+- https://github.com/niessner/Matterport
+
+Reader notes: different download options expose different assets. Confirm that the current scan contains required images, pose/calibration, mesh, and semantic files before conversion.
 
 目标转换：可直接从 RGB-D + pose 构建前馈训练数据，也可从 mesh 渲染补充视角。全景图可拆分成 perspective views，也可保留 equirectangular camera model；mesh/region/object semantics 写入 annotations 与 scene_graph。
 
@@ -952,7 +911,11 @@ Metadata：
 }
 ```
 
-格式/目录：nuScenes 是 token-based relational schema。核心表包括 `scene`、`sample`、`sample_data`、`sample_annotation`、`sensor`、`calibrated_sensor`、`ego_pose`、`map`、`lidarseg` 等。camera image 和 lidar/radar point cloud 通过 `sample_data.filename` 指向文件；`calibrated_sensor` 保存传感器外参和 camera intrinsic；`ego_pose` 保存 ego-to-global pose。
+Format/layout: nuScenes is a token-based relational schema. Use the official devkit schema for tables, `samples`, `sweeps`, maps, calibration, and ego pose links.
+- https://github.com/nutonomy/nuscenes-devkit/blob/master/docs/schema_nuscenes.md
+- https://www.nuscenes.org/nuscenes
+
+Reader notes: build indexes from JSON tables such as `scene`, `sample`, `sample_data`, `calibrated_sensor`, `ego_pose`, and `sensor`; then resolve files through `sample_data.filename`. Do not replace schema joins with directory scans.
 
 目标转换：对每个 keyframe sample，组合：
 
@@ -1089,7 +1052,11 @@ Metadata：
 }
 ```
 
-格式/目录：每个场景常见资产包括 `mesh.ply`、`habitat/mesh_semantic.ply`、`info_semantic.json`、`semantic.bin/json`、textures、navmesh 等。Habitat 目录可直接用于模拟渲染。
+Format/layout: use Habitat and Replica official documentation for mesh, texture, semantic mesh, semantic metadata, and navmesh assets.
+- https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replica-dataset
+- https://github.com/facebookresearch/Replica-Dataset
+
+Reader notes: Replica is mesh/semantic-mesh first. Do not assume existing RGB-D trajectories; render RGB/depth/semantic views from the official assets.
 
 目标转换：作为 mesh-first/semantic mesh 数据集，使用 Habitat-Sim 采样相机位姿并渲染 RGB/depth/semantic/instance。mesh 与 semantic metadata 写入 `meshes/` 与 annotations。
 
@@ -1132,7 +1099,10 @@ Metadata：
 }
 ```
 
-格式/目录：常见组织为 Habitat scene dataset config + stage/object asset configs + navmesh + articulated/rigid object assets。目标是 embodied AI/rearrangement，不是原始 RGB-D 扫描。
+Format/layout: use Habitat official documentation for ReplicaCAD scene dataset config, stages, rigid objects, articulated objects, scene instances, receptacles, and navmeshes.
+- https://github.com/facebookresearch/habitat-sim/blob/main/DATASETS.md#replicacad
+
+Reader notes: `scene_dataset_config` is the entry point. Preserve articulated object, receptacle, physics, and scene-instance metadata instead of flattening the dataset into static meshes.
 
 目标转换：使用 Habitat-Sim/Isaac/Habitat renderer 从 scene config 渲染 RGB-D/semantic，并可保留物体物理属性、可交互关系到 `scene_graph.json`。原始 CAD/URDF/scene config 存入 `meshes/` 或 `annotations/sim_config`。
 
@@ -1176,7 +1146,11 @@ Metadata：
 }
 ```
 
-格式/目录：每个 scan 通常为 `scene%04d_%02d`，包含 `.sens` 传感器流、mesh、pose、color/depth 导出、`*.aggregation.json`、`*.segs.json`、`*_vh_clean*.ply`、`*_vh_clean_2.labels.ply`、2D label/instance 等。`.sens` 内含 color、depth、pose、intrinsic/extrinsic。
+Format/layout: use the official ScanNet page and repository for `.sens`, meshes, aggregation, segments, and 2D label/depth/instance assets.
+- https://www.scan-net.org/
+- https://github.com/ScanNet/ScanNet
+
+Reader notes: `.sens` is the source sensor stream with color, depth, pose, and intrinsics/extrinsics. Exported `color`, `depth`, `pose`, and `intrinsic` folders are derived artifacts and must be declared as such.
 
 目标转换：先用官方脚本或 adapter 解码 `.sens` 为 RGB/depth/pose；mesh/semantic ply 转 `meshes`；aggregation/segs 转 instance/semantic；按时间邻近生成 pairs。
 
@@ -1262,22 +1236,10 @@ Metadata：
 }
 ```
 
-格式/目录：典型结构：
+Format/layout: use the official uCO3D repository for SQLite metadata, set lists, RGB/mask videos, HDF5 depth, point clouds, and Gaussian splats.
+- https://github.com/facebookresearch/uco3d
 
-```text
-metadata.sqlite
-set_lists/*.sqlite
-<super_category>/<category>/<sequence>/
-├── rgb_video.mp4
-├── mask_video.mkv
-├── depth_maps.h5
-├── point_cloud.ply
-├── sparse_point_cloud.ply
-├── segmented_point_cloud.ply
-└── gaussian_splats/
-```
-
-frame-level metadata、camera poses、paths 等存储在 `metadata.sqlite`；split 存储在 `set_lists/*.sqlite`。
+Reader notes: `metadata.sqlite` is the authoritative index. Resolve video frames, depth, pose, mask, caption, point cloud, and GS paths from the schema instead of fixed directory traversal.
 
 目标转换：读取 sqlite 作为主索引；视频解码成 RGB/mask frame；HDF5 读取 depth；pose 转 `T_c2w`；point cloud 与 GS 复制；LVIS/category/caption 写 annotations。适合 object-level multiview/3DGS 训练。
 
@@ -1410,7 +1372,11 @@ Metadata：
 }
 ```
 
-格式/目录：当前官方文档说明数据集约 1006 scenes；目录包括 `split/`、`metadata/`、`data/<scene_id>/scans`、`dslr`、`iphone`、`panocam`。`scans` 下有 `pc_aligned.ply`、`mesh_aligned_0.05_semantic.ply`、`segments.json`、`segments_anno.json`；`dslr/colmap` 有 `cameras.txt/images.txt/points3D.txt`；`dslr/nerfstudio` 有 `transforms.json`；`iphone` 有 `rgb.mkv`、`depth.bin`/depth PNG、`pose_intrinsic_imu.json`。
+Format/layout: use the official ScanNet++ documentation for splits, metadata, scans, DSLR, iPhone, panocam, COLMAP, Nerfstudio, and RGB-D assets.
+- https://scannetpp.mlsg.cit.tum.de/scannetpp/documentation
+- https://github.com/scannetpp/scannetpp
+
+Reader notes: DSLR/COLMAP, Nerfstudio, iPhone, and mesh assets use different conventions. Parse each stream according to the official docs and keep coordinate conversions explicit.
 
 目标转换：优先使用 DSLR undistorted + COLMAP metric poses 构建高质量 RGB+pose；用 mesh 渲染 high-res depth；iPhone RGB-D 可作为低分辨率 depth source；semantic mesh 可投影到 2D 生成 semantic/instance masks。场景语义图可由 segments/object annotations 构建。
 
@@ -1453,20 +1419,10 @@ Metadata：
 }
 ```
 
-格式/目录：每个 scene 目录结构示例：
+Format/layout: use the Hugging Face dataset page for InteriorAgent USD/USDA scenes, materials, meshes, and room metadata.
+- https://huggingface.co/datasets/spatialverse/InteriorAgent
 
-```text
-kujiale_xxxx/
-├── Materials/
-│   ├── Textures/
-│   └── *.mdl
-├── Meshes/
-├── kujiale_xxxx.usda
-├── limpopo_golf_course_4k.hdr
-└── rooms.json
-```
-
-`rooms.json` 保存 room_type 和 polygon，坐标在 Isaac Sim world frame 中，X forward、Y right、Z up。
+Reader notes: this is an Isaac Sim/USD scene-asset dataset, not pre-rendered RGB-D frames. Generate RGB/depth/semantic/pose through a renderer after loading official assets.
 
 目标转换：使用 Isaac Sim/Omniverse RenderAgent 加载 `.usda`，采样 camera，渲染 RGB-D/semantic；`rooms.json` 写 `scene_graph.json` 或 `floorplan.json`；USD 原文件复制到 `meshes/` 或 `sim_assets/`。
 
@@ -1510,16 +1466,11 @@ Metadata：
 }
 ```
 
-格式/目录：HF USDZ 版本结构非常简单：
+Format/layout: use the official repository and Hugging Face dataset page for InteriorGS / SAGE-3D InteriorGS USDZ assets.
+- https://github.com/manycore-research/InteriorGS
+- https://huggingface.co/datasets/spatialverse/SAGE-3D_InteriorGS_usdz
 
-```text
-InteriorGS_usdz/
-├── 839873.usdz
-├── 839874.usdz
-└── ...  # 约 1000 scenes
-```
-
-转换管线为 `InteriorGS compressed PLY -> decompressed PLY -> USDZ`，USDZ 使用面向 3D Gaussian rendering 的 USD schema 扩展。
+Reader notes: treat USDZ, Gaussian splats, metadata, and previews as official asset types from the file pages. Do not maintain a static local tree here.
 
 目标转换：若目标支持 GS，直接复制 `.usdz` 到 `gs/` 并记录 metadata；若目标为 RGB-D/pose，则通过 Isaac Sim/3DGRUT renderer 渲染多视角 RGB、depth、semantic/occupancy。GS 本身不等同 mesh，物理碰撞需配合 collision mesh。
 
@@ -1562,12 +1513,10 @@ Metadata：
 }
 ```
 
-格式/目录：HF 数据集说明：
+Format/layout: use the Hugging Face dataset page for TabletopGen-Assets scene gallery and GLB scene assets.
+- https://huggingface.co/datasets/xinjue1/TabletopGen-Assets/tree/main/scene_gallery
 
-```text
-scene_gallery/        # generated 3D tabletop scenes, .glb
-manipulation_demo/    # Isaac Sim pick-and-place demo code/assets
-```
+Reader notes: this is GLB/asset-first data. Load official scene assets and render RGB-D/normal/mask/pose with Blender or another renderer.
 
 目标转换：作为 GLB scene-first 数据集，需要 Blender/Isaac RenderAgent 渲染多视图 RGB-D/normal/mask，并保留 GLB scene 到 `meshes/`。适合构建桌面物体密集布局的前馈数据。
 
@@ -1609,7 +1558,14 @@ Metadata：
 }
 ```
 
-格式/目录：无法从官方来源确认。可能是 Maya/Autodesk 格式资产、`.ma/.mb`、或某个内部数据集的名称。
+格式/目录：无可确认的官方数据集组织格式。当前条目只写作 “Maya”，未提供官方 URL，也不能唯一对应某个公开 benchmark。不得把 Autodesk Maya 的 `.ma/.mb` 资产格式、用户内部资产库或任意 DCC 工程目录写成官方数据集目录。
+
+```text
+Maya/
+└── <no confirmed official dataset layout>
+```
+
+若后续用户提供官方页面、下载包或样本目录，应在本条目中记录该来源的实际组织方式；在此之前只能作为用户自定义 DCC/mesh 资产占位处理。
 
 目标转换：如果是 `.ma/.mb`，需要 Maya/Blender/Assimp 可读转换链；如果是 `.fbx/.obj/.glb`，可走通用 MeshAdapter。转换为前馈数据集必须渲染 RGB-D/pose。
 
@@ -1696,22 +1652,10 @@ Metadata：
 }
 ```
 
-格式/目录：仓库给出的目录：
+Format/layout: use the official repository for image/label, COCO, and ADE20K-style satellite lane data organization.
+- https://github.com/rilab314/SatelliteLaneDataset2024
 
-```text
-datasets/
-├── satellite_dataset_250206/
-│   ├── image/
-│   └── label/
-├── satellite_coco_250206/
-│   ├── annotations/
-│   ├── test2017/
-│   ├── train2017/
-│   └── val2017/
-└── satellite_ade20k_250206/
-    ├── annotations/{training,validation}/
-    └── images/{training,validation}/
-```
+Reader notes: this is remote-sensing road/lane annotation data, not perspective multi-view 3D data. Preserve resolution, CRS, and task format metadata when converting.
 
 目标转换：优先读取 COCO/ADE20K 格式，因为 schema 标准。卫星图写 `rgb/overhead`，label/mask 写 `semantic/`，COCO annotations 写 `annotations/coco.json`。若需要 polyline，需要从原始 label 或 NGII HD map 数据回溯。
 
@@ -1756,7 +1700,11 @@ Metadata：
 }
 ```
 
-格式/目录：仓库采用 code-first records，`data/records/**` 通过 Git LFS 按需 hydrate。每条记录可能包含 `model.py`、metadata、生成结果和可视化资产。执行 record 需要运行 Python 代码。
+Format/layout: use the official Articraft page and repository for code-first records, Git LFS hydration, `data/records/**`, and `model.py` assets.
+- https://articraft3d.github.io/
+- https://github.com/mattzh72/articraft
+
+Reader notes: each record centers on executable or parseable asset-generation code plus associated mesh/URDF/metadata. Pin repository version and hydration state before parsing.
 
 目标转换：若目标是仿真/具身任务，应保留 URDF、关节、part semantics 到 `annotations/articulation.json`。若目标是前馈三维训练，需要按关节状态采样多个 articulation configurations，并渲染多视图 RGB-D/mask/part segmentation。
 
@@ -1801,7 +1749,12 @@ Metadata：
 }
 ```
 
-格式/目录：官方仓库包含 `client/`、`server/`、`IsaacLab/`、`M2T2/`、`assets/`、`robomimic/` 等；SAGE-10k 数据集位于 Hugging Face。scene 通常是 simulation-ready scene assets/configs。
+Format/layout: use the official SAGE repository, research page, and Hugging Face dataset page for code assets and scene zip distribution.
+- https://huggingface.co/datasets/nvidia/SAGE-10k
+- https://github.com/NVlabs/sage
+- https://research.nvidia.com/labs/dir/sage/
+
+Reader notes: Hugging Face scenes are distributed as `*_layout_*.zip` packages. Code repository assets/scripts are not the dataset body; parse official packages and metadata together.
 
 目标转换：和 InteriorAgent 类似，属于 simulation scene-first 数据集。用 Isaac Sim RenderAgent 渲染 RGB-D/semantic/instance/normal/pose；保留 scene config、object metadata、room/task 信息。若包含机器人动作数据，可写入 `annotations/embodied_tasks.jsonl`。
 
@@ -1845,17 +1798,11 @@ Metadata：
 }
 ```
 
-格式/目录：不同 benchmark 目录不同。Raw/odometry 常见内容包括：
+Format/layout: KITTI layouts differ by benchmark. Use official benchmark pages for Visual Odometry / SLAM, raw data, stereo, detection, tracking, and related downloads.
+- https://www.cvlibs.net/datasets/kitti/
+- https://www.cvlibs.net/datasets/kitti/eval_odometry.php
 
-```text
-image_00/ image_01/ image_02/ image_03/
-velodyne_points/velodyne/
-oxts/data/
-calib_cam_to_cam.txt
-calib_velo_to_cam.txt
-calib_imu_to_velo.txt
-poses/<seq>.txt   # odometry benchmark
-```
+Reader notes: the current KITTI odometry loader targets odometry-style `sequences/<seq>/calib.txt`, image folders, and `poses/<seq>.txt`. Raw KITTI/OXTS and other benchmarks require separate roots and parsers.
 
 目标转换：优先选择 odometry/raw 子集。相机内参从 calib 读取；pose 从 odometry poses 或 OXTS GPS/IMU 推导；LiDAR 转 point cloud/depth projection；stereo pairs 直接生成 `pair_type=stereo`，temporal pairs 按帧邻近生成。
 
@@ -1898,7 +1845,10 @@ Metadata：
 }
 ```
 
-格式/目录：常见目录包括 perspective/fisheye cameras、Velodyne scans、SICK scans、calibration、poses、3D bounding boxes、semantic/instance labels 等。官方说明所有帧准确 geolocalized，语义定义与 Cityscapes 一致，实例 ID 跨帧一致。
+Format/layout: use the official KITTI-360 documentation as the source of truth; do not duplicate the full directory tree here.
+- https://www.cvlibs.net/datasets/kitti-360/documentation.php
+
+Reader notes: the current loader uses perspective images, calibration, and poses through `roots.calibration`, `roots.images`, and `roots.poses`. Velodyne, SICK, 2D/3D semantics, and 3D boxes should be explicit optional roots or future loader fields.
 
 目标转换：适合高优先级构建多相机/长序列前馈数据。读取 calibration 和 poses，生成每个 camera 的 `T_c2w`；LiDAR/semantic point cloud 写入 `point_clouds`；2D/3D semantics 写 annotations；temporal、stereo、loop pairs 可全部构建。
 
@@ -1942,7 +1892,11 @@ Metadata：
 }
 ```
 
-格式/目录：官方仓库面向 NerfStudio/NVS 使用，包含 high-resolution images、camera poses、metadata、evaluation split。具体下载后的目录需样本确认。
+Format/layout: use the official WayveScenes101 page and repository for download, COLMAP calibration, camera names, baselines, and scene metadata.
+- https://wayve.ai/science/wayvescenes101/
+- https://github.com/wayveai/wayve_scenes
+
+Reader notes: official WayveScenes101 describes a COLMAP/metadata workflow. The current `WayveScenesPi3XDataset` reads one Nerfstudio-style `transforms.json` per scene, which is a different input format.
 
 目标转换：直接转为 driving multiview NVS/front-feed 数据。5 相机同步帧可构建 cross-camera pairs；10 FPS temporal frames 可构建 temporal pairs；held-out camera 应进入 test/novel-view split，不参与训练。
 
@@ -1986,7 +1940,11 @@ Metadata：
 }
 ```
 
-格式/目录：Waymo 经典版本使用 sharded TFRecord + protocol buffer；v2 系列还有组件化表/列式数据。常见 converter 会先把 Waymo 转成 KITTI-style 或自定义中间格式。
+Format/layout: use Waymo Open Dataset official docs and repository for Perception, Motion, End-to-End, and v2 component formats.
+- https://waymo.com/open/
+- https://github.com/waymo-research/waymo-open-dataset
+
+Reader notes: classic Perception data is sharded TFRecord plus protocol buffers; v2 adds component/table formats. The current `WaymoKittiPi3XDataset` reads converted KITTI-style data and is not a native Waymo raw-format loader.
 
 目标转换：Perception 数据可抽取 camera images、LiDAR range image/point cloud、camera/lidar calibration、vehicle pose、3D boxes、segmentation labels。Motion 数据可抽取 agent trajectories 与 maps。构建前馈几何时优先选择 camera + pose + LiDAR projected depth。
 

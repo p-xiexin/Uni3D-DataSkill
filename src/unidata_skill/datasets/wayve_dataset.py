@@ -29,6 +29,20 @@ def _read_rgb_image(path: Path) -> np.ndarray | None:
         return None
 
 
+def _path_roots(roots: dict[str, str | Path] | None) -> dict[str, Path]:
+    return {key: Path(value) for key, value in (roots or {}).items() if value is not None}
+
+
+def _optional_path_roots(roots: dict[str, str | Path | None] | None) -> dict[str, Path | None]:
+    return {key: None if value is None else Path(value) for key, value in (roots or {}).items()}
+
+
+def _require_dir(path: Path, name: str) -> Path:
+    if not path.is_dir():
+        raise FileNotFoundError(f"{name} directory not found: {path}")
+    return path
+
+
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
     if len(resolution) == 1 and isinstance(resolution[0], (list, tuple)):  # type: ignore[index]
         resolution = resolution[0]  # type: ignore[assignment]
@@ -59,17 +73,27 @@ class WayveScenesPi3XDataset(BaseDataset):
         frame_num: int = 8,
         stride: int = 1,
         resolution: list[int] | tuple[int, int] = (512, 288),
+        layout: str = "nerfstudio",
+        roots: dict[str, str | Path] | None = None,
+        optional_roots: dict[str, str | Path | None] | None = None,
         verbose: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
         self.dataset_label = "WayveScenesPi3X"
         self.data_root = Path(data_root)
+        self.layout = layout
         self.transforms_name = transforms_name
         self.stride = stride
         self.verbose = verbose
+        component_roots = _path_roots(roots)
+        self.optional_roots = _optional_path_roots(optional_roots)
+        self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")
+        self.images_root = component_roots.get("images")
+        if self.images_root is not None:
+            _require_dir(self.images_root, "roots.images")
 
-        self.sequences = scene_dirs or sorted(path.name for path in self.data_root.iterdir() if (path / transforms_name).is_file())
+        self.sequences = scene_dirs or sorted(path.name for path in self.scenes_root.iterdir() if (path / transforms_name).is_file())
         self.frames = {scene: self._build_scene_frames(scene) for scene in self.sequences}
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
@@ -78,11 +102,13 @@ class WayveScenesPi3XDataset(BaseDataset):
         return len(self.sequences)
 
     def _build_scene_frames(self, scene: str) -> list[WayveFrame]:
-        scene_dir = self.data_root / scene
+        scene_dir = self.scenes_root / scene
         transforms = _read_json(scene_dir / self.transforms_name)
         frames: list[WayveFrame] = []
         for idx, item in enumerate(transforms.get("frames", [])):
             image_path = scene_dir / item["file_path"]
+            if self.images_root is not None:
+                image_path = self.images_root / scene / item["file_path"]
             width = float(item.get("w", transforms.get("w", 1.0)))
             height = float(item.get("h", transforms.get("h", 1.0)))
             fx = float(item.get("fl_x", transforms.get("fl_x", 1.0)))

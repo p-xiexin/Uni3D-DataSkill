@@ -28,6 +28,20 @@ def _read_rgb_image(path: Path) -> np.ndarray | None:
         return None
 
 
+def _path_roots(roots: dict[str, str | Path] | None) -> dict[str, Path]:
+    return {key: Path(value) for key, value in (roots or {}).items() if value is not None}
+
+
+def _optional_path_roots(roots: dict[str, str | Path | None] | None) -> dict[str, Path | None]:
+    return {key: None if value is None else Path(value) for key, value in (roots or {}).items()}
+
+
+def _require_dir(path: Path, name: str) -> Path:
+    if not path.is_dir():
+        raise FileNotFoundError(f"{name} directory not found: {path}")
+    return path
+
+
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
     if len(resolution) == 1 and isinstance(resolution[0], (list, tuple)):  # type: ignore[index]
         resolution = resolution[0]  # type: ignore[assignment]
@@ -114,18 +128,25 @@ class KittiOdometryPi3XDataset(BaseDataset):
         frame_num: int = 8,
         stride: int = 1,
         resolution: list[int] | tuple[int, int] = (512, 384),
+        layout: str = "official",
+        roots: dict[str, str | Path] | None = None,
+        optional_roots: dict[str, str | Path | None] | None = None,
         verbose: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
         self.dataset_label = "KITTIOdometryPi3X"
         self.data_root = Path(data_root)
+        self.layout = layout
         self.cameras = cameras
         self.stride = stride
         self.verbose = verbose
+        component_roots = _path_roots(roots)
+        self.optional_roots = _optional_path_roots(optional_roots)
+        self.sequences_root = _require_dir(component_roots.get("sequences", self.data_root / "sequences"), "roots.sequences")
+        self.poses_root = _require_dir(component_roots.get("poses", self.data_root / "poses"), "roots.poses")
 
-        sequence_root = self.data_root / "sequences"
-        self.sequences = sequences or sorted(path.name for path in sequence_root.iterdir() if path.is_dir())
+        self.sequences = sequences or sorted(path.name for path in self.sequences_root.iterdir() if path.is_dir())
         self.frames = {sequence: self._build_sequence_frames(sequence) for sequence in self.sequences}
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
@@ -134,9 +155,9 @@ class KittiOdometryPi3XDataset(BaseDataset):
         return len(self.sequences)
 
     def _build_sequence_frames(self, sequence: str) -> list[KittiOdometryFrame]:
-        sequence_dir = self.data_root / "sequences" / sequence
+        sequence_dir = self.sequences_root / sequence
         calib = _parse_kitti_calib(sequence_dir / "calib.txt")
-        pose_path = self.data_root / "poses" / f"{sequence}.txt"
+        pose_path = self.poses_root / f"{sequence}.txt"
         poses = _parse_kitti_poses(pose_path)
 
         frames: list[KittiOdometryFrame] = []
