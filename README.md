@@ -58,8 +58,9 @@ python -m pip install -r thirdparty/Pi3/requirements.txt
 
 ## Dataset Config
 
-Use a local JSON config to map dataset labels to dataset roots. Start from the
-example file:
+Use a local JSON config to map dataset labels to dataset roots. The example
+file contains one entry for each supported loader. Copy it, keep the entries
+you need, and replace the paths with mounted local paths:
 
 ```bash
 cp dataset_config.example.json dataset_config.local.json

@@ -57,7 +57,8 @@ python -m pip install -r thirdparty/Pi3/requirements.txt
 
 ## 数据集配置
 
-使用本地 JSON 配置文件维护 dataset label 和数据集根目录的映射。可以从示例文件开始：
+使用本地 JSON 配置文件维护 dataset label 和数据集根目录的映射。示例文件为每个
+已支持的 loader 都提供了一个条目。复制后保留需要的条目，并把路径替换为已经挂载好的本地路径：
 
 ```bash
 cp dataset_config.example.json dataset_config.local.json

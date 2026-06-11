@@ -1,21 +1,14 @@
 {
   "datasets": [
     {
-      "label": "kitti360_train",
-      "dataset": "kitti360",
-      "root": "/mnt/datasets/KITTI-360",
+      "label": "arkitscenes_train",
+      "dataset": "arkitscenes",
+      "root": "/mnt/datasets/ARKitScenes",
       "roots": {
-        "calibration": "/mnt/datasets/KITTI-360/calibration",
-        "images": "/mnt/datasets/KITTI-360/data_2d_raw",
-        "poses": "/mnt/datasets/KITTI-360/data_poses"
+        "scans": "/mnt/datasets/ARKitScenes"
       },
-      "optional_roots": {
-        "lidar": "/mnt/datasets/KITTI-360/data_3d_raw",
-        "semantics_2d": null,
-        "semantics_3d": null
-      },
-      "sequences": ["2013_05_28_drive_0000_sync"],
-      "cameras": ["image_00"]
+      "splits": ["Training", "Validation"],
+      "scan_ids": ["41048152"]
     },
     {
       "label": "blendedmvs_train",
@@ -33,11 +26,95 @@
       "mode": "train"
     },
     {
+      "label": "hypersim_train",
+      "dataset": "hypersim",
+      "root": "/mnt/datasets/Hypersim",
+      "roots": {
+        "scenes": "/mnt/datasets/Hypersim"
+      },
+      "scene_dirs": ["ai_001_001"],
+      "camera_ids": ["cam_00"],
+      "fov_x_degrees": 60.0
+    },
+    {
+      "label": "kitti360_train",
+      "dataset": "kitti360",
+      "root": "/mnt/datasets/KITTI-360",
+      "roots": {
+        "calibration": "/mnt/datasets/KITTI-360/calibration",
+        "images": "/mnt/datasets/KITTI-360/data_2d_raw",
+        "poses": "/mnt/datasets/KITTI-360/data_poses"
+      },
+      "optional_roots": {
+        "lidar": "/mnt/datasets/KITTI-360/data_3d_raw",
+        "semantics_2d": null,
+        "semantics_3d": null
+      },
+      "sequences": ["2013_05_28_drive_0000_sync"],
+      "cameras": ["image_00"]
+    },
+    {
+      "label": "kitti_odometry_train",
+      "dataset": "kitti",
+      "root": "/mnt/datasets/KITTI-odometry",
+      "roots": {
+        "sequences": "/mnt/datasets/KITTI-odometry/sequences",
+        "poses": "/mnt/datasets/KITTI-odometry/poses"
+      },
+      "sequences": ["00"],
+      "cameras": ["image_2"]
+    },
+    {
+      "label": "nuscenes_mini",
+      "dataset": "nuscenes",
+      "root": "/mnt/datasets/nuScenes",
+      "roots": {
+        "tables": "/mnt/datasets/nuScenes/v1.0-mini",
+        "data": "/mnt/datasets/nuScenes",
+        "samples": "/mnt/datasets/nuScenes/samples"
+      },
+      "version": "v1.0-mini",
+      "cameras": ["CAM_FRONT"]
+    },
+    {
       "label": "sage_sample",
       "dataset": "sage",
       "root": "/mnt/datasets/SAGE-10k-0522",
       "domains": ["blend"],
-      "settings": ["yaw_amplitude_0522"]
+      "settings": ["yaw_amplitude_0522"],
+      "route_ids": ["route_1"]
+    },
+    {
+      "label": "uco3d_train",
+      "dataset": "uco3d",
+      "root": "/mnt/datasets/uCO3D",
+      "roots": {
+        "metadata": "/mnt/datasets/uCO3D/metadata.sqlite",
+        "set_lists": "/mnt/datasets/uCO3D/set_lists/set_lists_3categories-debug.sqlite"
+      },
+      "subsets": ["train"],
+      "limit_sequences_to": 10
+    },
+    {
+      "label": "wayve_train",
+      "dataset": "wayve",
+      "root": "/mnt/datasets/WayveScenes101",
+      "roots": {
+        "scenes": "/mnt/datasets/WayveScenes101"
+      },
+      "scene_dirs": ["scene_0000"],
+      "transforms_name": "transforms.json"
+    },
+    {
+      "label": "waymo_kitti_train",
+      "dataset": "waymo-kitti",
+      "root": "/mnt/datasets/Waymo-KITTI",
+      "roots": {
+        "sequences": "/mnt/datasets/Waymo-KITTI/sequences",
+        "poses": "/mnt/datasets/Waymo-KITTI/poses"
+      },
+      "sequences": ["0000"],
+      "cameras": ["image_2"]
     }
   ]
 }
