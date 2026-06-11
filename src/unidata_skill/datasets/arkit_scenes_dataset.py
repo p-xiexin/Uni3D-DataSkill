@@ -115,29 +115,27 @@ class ARKitScenesPi3XDataset(BaseDataset):
     def __init__(
         self,
         data_root: str | Path,
+        verbose: bool = False,
         scan_ids: list[str] | None = None,
         splits: tuple[str, ...] = ("Training", "Validation"),
-        frame_num: int = 8,
-        stride: int = 1,
-        resolution: list[int] | tuple[int, int] = (512, 384),
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
-        verbose: bool = False,
         **kwargs: Any,
     ) -> None:
-        super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
+        self.verbose = verbose
+        super().__init__(**kwargs)
         self.dataset_label = "ARKitScenesPi3X"
         self.data_root = Path(data_root)
         component_roots = _path_roots(roots)
         self.optional_roots = _optional_path_roots(optional_roots)
         self.scans_root = _require_dir(component_roots.get("scans", self._default_scans_root()), "roots.scans")
         self.splits = splits
-        self.stride = stride
-        self.verbose = verbose
         self.scan_dirs = self._discover_scan_dirs(scan_ids)
         self.sequences = sorted(self.scan_dirs)
         self.frames = {scan_id: self._build_scan_frames(scan_id, scan_dir) for scan_id, scan_dir in self.scan_dirs.items()}
         self.num_imgs = {scan_id: len(frames) for scan_id, frames in self.frames.items()}
+        if self.verbose:
+            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.scans_root}", file=sys.stderr, flush=True)
 
     def __len__(self) -> int:
@@ -205,21 +203,15 @@ class ARKitScenesPi3XDataset(BaseDataset):
             frames.append(ARKitScenesFrame(scan_id, image_path.stem, image_path, depth_path, intrinsics.copy(), pose.copy()))
         return frames
 
-    def _window_indices(self, num_imgs: int, rng: np.random.Generator) -> range:
-        required_span = (self.frame_num - 1) * self.stride + 1
-        if num_imgs <= required_span:
-            return range(0, num_imgs, self.stride)
-        begin = int(rng.integers(0, num_imgs - required_span + 1))
-        return range(begin, begin + required_span, self.stride)
-
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
         frames = self.frames.get(scene, [])
         if not frames:
             self.this_views_info = dict(scene=scene, idxs=[])
             return []
-        idxs = self._window_indices(len(frames), rng)
-        self.this_views_info = dict(scene=scene, idxs=list(idxs))
+        should_replace = len(frames) < self.frame_num
+        idxs = list(rng.choice(len(frames), self.frame_num, replace=should_replace))
+        self.this_views_info = dict(scene=scene, idxs=idxs)
 
         views = []
         for idx in idxs:

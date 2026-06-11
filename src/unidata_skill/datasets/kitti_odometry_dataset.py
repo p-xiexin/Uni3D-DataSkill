@@ -123,22 +123,18 @@ class KittiOdometryPi3XDataset(BaseDataset):
     def __init__(
         self,
         data_root: str | Path,
+        verbose: bool = False,
         sequences: list[str] | None = None,
         cameras: tuple[str, ...] = ("image_2",),
-        frame_num: int = 8,
-        stride: int = 1,
-        resolution: list[int] | tuple[int, int] = (512, 384),
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
-        verbose: bool = False,
         **kwargs: Any,
     ) -> None:
-        super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
+        self.verbose = verbose
+        super().__init__(**kwargs)
         self.dataset_label = "KITTIOdometryPi3X"
         self.data_root = Path(data_root)
         self.cameras = cameras
-        self.stride = stride
-        self.verbose = verbose
         component_roots = _path_roots(roots)
         self.optional_roots = _optional_path_roots(optional_roots)
         self.sequences_root = _require_dir(component_roots.get("sequences", self.data_root / "sequences"), "roots.sequences")
@@ -147,6 +143,8 @@ class KittiOdometryPi3XDataset(BaseDataset):
         self.sequences = sequences or sorted(path.name for path in self.sequences_root.iterdir() if path.is_dir())
         self.frames = {sequence: self._build_sequence_frames(sequence) for sequence in self.sequences}
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
+        if self.verbose:
+            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
 
     def __len__(self) -> int:
@@ -177,13 +175,6 @@ class KittiOdometryPi3XDataset(BaseDataset):
                 frames.append(KittiOdometryFrame(sequence, camera, image_path.stem, image_path, intrinsics, poses[idx]))
         return sorted(frames, key=lambda item: (item.frame_id, item.camera_id))
 
-    def _window_indices(self, num_imgs: int, rng: np.random.Generator) -> range:
-        required_span = (self.frame_num - 1) * self.stride + 1
-        if num_imgs <= required_span:
-            return range(0, num_imgs, self.stride)
-        begin = int(rng.integers(0, num_imgs - required_span + 1))
-        return range(begin, begin + required_span, self.stride)
-
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
         frames = self.frames.get(scene, [])
@@ -191,8 +182,9 @@ class KittiOdometryPi3XDataset(BaseDataset):
             self.this_views_info = dict(scene=scene, idxs=[])
             return []
 
-        idxs = self._window_indices(len(frames), rng)
-        self.this_views_info = dict(scene=scene, idxs=list(idxs))
+        should_replace = len(frames) < self.frame_num
+        idxs = list(rng.choice(len(frames), self.frame_num, replace=should_replace))
+        self.this_views_info = dict(scene=scene, idxs=idxs)
 
         views = []
         target_width, target_height = _as_resolution(resolution)

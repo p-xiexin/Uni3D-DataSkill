@@ -13,7 +13,7 @@ raw or converted dataset root
   -> dataset-specific Pi3X dataloader
   -> Pi3 BaseDataset behavior
   -> PyTorch DataLoader
-  -> validation report
+  -> verbose sample probe
 ```
 
 The implementation lives mainly in:
@@ -121,7 +121,7 @@ Keep dataset-specific logic local to each dataloader:
 - image/table parsing
 - calibration loading
 - pose loading
-- sample/window selection
+- view sampling inside `_get_views`
 - placeholder fields for unavailable geometry
 
 KITTI-360 is not special. Treat it the same as KITTI odometry, nuScenes, Wayve,
@@ -132,7 +132,7 @@ Waymo KITTI-style, BlendedMVG, and future direct loaders.
 The public validation entry point is:
 
 ```powershell
-python -m unidata_skill validate-config --config <config.json> --label <label>
+python -m unidata_skill validate-dataset --config <config.json> --label <label>
 ```
 
 Dataset construction is registered in `DATASET_LOADERS` in
@@ -143,10 +143,9 @@ Each loader registry entry should define:
 
 - aliases
 - class
-- root argument name, currently `data_root` for direct loaders
 - constructor defaults for data-source choices such as default cameras or mode
-- validation constants used only by `validate-config`
-- optional warning text
+- default `frame_num`
+- default `resolution`
 
 Do not add dataset-specific CLI commands unless the user explicitly asks for a
 temporary debug command.
@@ -185,14 +184,13 @@ required inputs and `optional_roots` for modalities that may be unavailable.
 
 ## Validation Expectations
 
-Keep validation focused on dataloader behavior:
+Keep `validate-dataset` focused on dataloader probing:
 
 - referenced image paths exist
 - returned views have required Pi3X fields
 - camera intrinsics are finite and plausible
 - pose matrices are valid and invertible
 - depth placeholders or depth maps have expected shapes
-- DataLoader batching works when dependencies are installed
 
 Do not silently invent missing geometry. If depth, pose, calibration, or labels
 are unavailable or placeholders, expose that clearly in fields or warnings.

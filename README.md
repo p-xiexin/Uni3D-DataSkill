@@ -13,7 +13,7 @@ Current workflow:
 raw dataset root
   -> Pi3X-compatible Dataset implementation
   -> PyTorch DataLoader
-  -> validation report
+  -> verbose sample probe
 ```
 
 Implemented loaders include KITTI-360, KITTI odometry, nuScenes table layouts,
@@ -118,22 +118,25 @@ Supported dataset keys:
 Validate a dataset entry from a config file:
 
 ```bash
-python -m unidata_skill validate-config \
+python -m unidata_skill validate-dataset \
   --config dataset_config.local.json \
   --label kitti360_train
 ```
 
-The validator prints a JSON report:
+The command prints a verbose sample probe:
 
-```json
-{
-  "status": "ok",
-  "dataset_len": 1234,
-  "checked_samples": 4,
-  "checked_batches": 1,
-  "errors": [],
-  "warnings": []
-}
+```text
+num sequences: 1234
+first sequences: [...]
+num views: 8
+================================================================================
+view: 0
+label: ...
+instance: ...
+image_path: ...
+depthmap: <class 'numpy.ndarray'> ...
+camera_pose: <class 'numpy.ndarray'> ...
+camera_intrinsics: <class 'numpy.ndarray'> ...
 ```
 
 ## Dataset Layouts

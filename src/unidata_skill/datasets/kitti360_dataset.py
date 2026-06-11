@@ -278,16 +278,15 @@ class Kitti360Pi3XDataset(BaseDataset):
     def __init__(
         self,
         data_root: str | Path,
+        verbose: bool = False,
         sequences: list[str] | None = None,
         cameras: tuple[str, ...] = ("image_00",),
-        frame_num: int = 8,
-        stride: int = 5,
-        resolution: list[int] | tuple[int, int] = (512, 384),
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
+        self.verbose = verbose
+        super().__init__(**kwargs)
         self.dataset_label = "KITTI360Pi3X"
         self.data_root = Path(data_root)
         component_roots = _path_roots(roots)
@@ -298,7 +297,6 @@ class Kitti360Pi3XDataset(BaseDataset):
         self.lidar_root = resolve_lidar_root(self.data_root, component_roots, self.optional_roots)
         self.sequences = sequences or discover_sequences(self.images_root)
         self.cameras = cameras
-        self.stride = stride
         self.perspective_calibration = load_perspective_calibration(self.calibration_root)
         self.intrinsics = self.perspective_calibration.intrinsics
         self.projections = self.perspective_calibration.projections
@@ -310,6 +308,8 @@ class Kitti360Pi3XDataset(BaseDataset):
         self.poses = {sequence: load_cam0_to_world(self.poses_root, sequence) for sequence in self.sequences}
         self.frames = self._build_frames()
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
+        if self.verbose:
+            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
 
     def __len__(self) -> int:
@@ -346,16 +346,12 @@ class Kitti360Pi3XDataset(BaseDataset):
             self.this_views_info = dict(scene=scene, idxs=[])
             return []
 
-        required_span = (self.frame_num - 1) * self.stride + 1
-        if num_imgs <= required_span:
-            idxs = range(0, num_imgs, self.stride)
-        else:
-            begin = int(rng.integers(0, num_imgs - required_span + 1))
-            idxs = range(begin, begin + required_span, self.stride)
+        should_replace = num_imgs < self.frame_num
+        idxs = list(rng.choice(num_imgs, self.frame_num, replace=should_replace))
 
         self.this_views_info = dict(
             scene=scene,
-            idxs=list(idxs),
+            idxs=idxs,
         )
 
         views = []

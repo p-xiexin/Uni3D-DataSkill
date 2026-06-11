@@ -40,20 +40,18 @@ class UCO3DPi3XDataset(BaseDataset):
     def __init__(
         self,
         data_root: str | Path,
+        verbose: bool = False,
         subsets: list[str] | None = None,
         subset_lists_name: str = "set_lists_3categories-debug.sqlite",
         set_lists_file: str | Path | None = None,
         pick_sequences: list[str] | None = None,
         limit_sequences_to: int = 0,
-        frame_num: int = 8,
-        stride: int = 1,
-        resolution: list[int] | tuple[int, int] = (512, 512),
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
-        verbose: bool = False,
         **kwargs: Any,
     ) -> None:
-        super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
+        self.verbose = verbose
+        super().__init__(**kwargs)
         try:
             from uco3d import UCO3DDataset, UCO3DFrameDataBuilder, opencv_cameras_projection_from_uco3d
         except ModuleNotFoundError as exc:
@@ -72,8 +70,6 @@ class UCO3DPi3XDataset(BaseDataset):
             set_lists_file = component_roots.get("set_lists", self.data_root / "set_lists" / subset_lists_name)
         self.set_lists_file = _require_file(Path(set_lists_file), "roots.set_lists")
         self.subsets = subsets or ["train"]
-        self.stride = stride
-        self.verbose = verbose
 
         builder = UCO3DFrameDataBuilder(
             dataset_root=str(self.data_root),
@@ -99,17 +95,12 @@ class UCO3DPi3XDataset(BaseDataset):
             sequence: list(self.uco3d_dataset.sequence_indices_in_order(sequence)) for sequence in self.sequences
         }
         self.num_imgs = {sequence: len(indices) for sequence, indices in self.sequence_indices.items()}
+        if self.verbose:
+            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.data_root}", file=sys.stderr, flush=True)
 
     def __len__(self) -> int:
         return len(self.sequences)
-
-    def _window_indices(self, num_imgs: int, rng: np.random.Generator) -> range:
-        required_span = (self.frame_num - 1) * self.stride + 1
-        if num_imgs <= required_span:
-            return range(0, num_imgs, self.stride)
-        begin = int(rng.integers(0, num_imgs - required_span + 1))
-        return range(begin, begin + required_span, self.stride)
 
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
@@ -117,8 +108,9 @@ class UCO3DPi3XDataset(BaseDataset):
         if not dataset_indices:
             self.this_views_info = dict(scene=scene, idxs=[])
             return []
-        idxs = self._window_indices(len(dataset_indices), rng)
-        self.this_views_info = dict(scene=scene, idxs=list(idxs))
+        should_replace = len(dataset_indices) < self.frame_num
+        idxs = list(rng.choice(len(dataset_indices), self.frame_num, replace=should_replace))
+        self.this_views_info = dict(scene=scene, idxs=idxs)
 
         views = []
         for local_idx in idxs:

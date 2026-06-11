@@ -115,11 +115,11 @@ class BlendedMVGDataset(BaseDataset):
         list_name: str | None = None,
         **kwargs: Any,
     ) -> None:
+        self.verbose = verbose
         super().__init__(**kwargs)
         if data_root is None:
             raise ValueError("data_root is required")
 
-        self.verbose = verbose
         self.dataset_label = "BlendedMVG"
         self.data_root = Path(data_root)
         component_roots = _path_roots(roots)

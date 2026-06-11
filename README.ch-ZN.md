@@ -12,7 +12,7 @@ English documentation: [README.md](README.md)
 raw dataset root
   -> Pi3X-compatible Dataset implementation
   -> PyTorch DataLoader
-  -> validation report
+  -> verbose sample probe
 ```
 
 已实现的 loader 包括 KITTI-360、KITTI odometry、nuScenes table layout、
@@ -112,22 +112,25 @@ cp dataset_config.example.json dataset_config.local.json
 验证配置文件中的一个数据集条目：
 
 ```bash
-python -m unidata_skill validate-config \
+python -m unidata_skill validate-dataset \
   --config dataset_config.local.json \
   --label kitti360_train
 ```
 
-验证器会输出 JSON 报告：
+命令会输出 verbose sample probe：
 
-```json
-{
-  "status": "ok",
-  "dataset_len": 1234,
-  "checked_samples": 4,
-  "checked_batches": 1,
-  "errors": [],
-  "warnings": []
-}
+```text
+num sequences: 1234
+first sequences: [...]
+num views: 8
+================================================================================
+view: 0
+label: ...
+instance: ...
+image_path: ...
+depthmap: <class 'numpy.ndarray'> ...
+camera_pose: <class 'numpy.ndarray'> ...
+camera_intrinsics: <class 'numpy.ndarray'> ...
 ```
 
 ## 数据集目录结构

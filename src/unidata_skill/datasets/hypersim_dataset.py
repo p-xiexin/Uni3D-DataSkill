@@ -107,30 +107,27 @@ class HypersimPi3XDataset(BaseDataset):
     def __init__(
         self,
         data_root: str | Path,
+        verbose: bool = False,
         scene_dirs: list[str] | None = None,
         camera_ids: list[str] | None = None,
-        fov_x_degrees: float = 60.0,
-        frame_num: int = 8,
-        stride: int = 1,
-        resolution: list[int] | tuple[int, int] = (512, 384),
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
-        verbose: bool = False,
         **kwargs: Any,
     ) -> None:
-        super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
+        self.verbose = verbose
+        self.fov_x_degrees = float(kwargs.pop("fov_x_degrees", 60.0))
+        super().__init__(**kwargs)
         self.dataset_label = "HypersimPi3X"
         self.data_root = Path(data_root)
         component_roots = _path_roots(roots)
         self.optional_roots = _optional_path_roots(optional_roots)
         self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")
         self.camera_ids = camera_ids
-        self.fov_x_degrees = float(fov_x_degrees)
-        self.stride = stride
-        self.verbose = verbose
         self.sequences = scene_dirs or sorted(path.name for path in self.scenes_root.iterdir() if (path / "_detail").is_dir())
         self.frames = {scene: self._build_scene_frames(scene) for scene in self.sequences}
         self.num_imgs = {scene: len(frames) for scene, frames in self.frames.items()}
+        if self.verbose:
+            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
         print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.scenes_root}", file=sys.stderr, flush=True)
 
     def __len__(self) -> int:
@@ -175,21 +172,15 @@ class HypersimPi3XDataset(BaseDataset):
                 )
         return sorted(frames, key=lambda frame: (frame.camera_id, frame.frame_no))
 
-    def _window_indices(self, num_imgs: int, rng: np.random.Generator) -> range:
-        required_span = (self.frame_num - 1) * self.stride + 1
-        if num_imgs <= required_span:
-            return range(0, num_imgs, self.stride)
-        begin = int(rng.integers(0, num_imgs - required_span + 1))
-        return range(begin, begin + required_span, self.stride)
-
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
         frames = self.frames.get(scene, [])
         if not frames:
             self.this_views_info = dict(scene=scene, idxs=[])
             return []
-        idxs = self._window_indices(len(frames), rng)
-        self.this_views_info = dict(scene=scene, idxs=list(idxs))
+        should_replace = len(frames) < self.frame_num
+        idxs = list(rng.choice(len(frames), self.frame_num, replace=should_replace))
+        self.this_views_info = dict(scene=scene, idxs=idxs)
 
         views = []
         for idx in idxs:
