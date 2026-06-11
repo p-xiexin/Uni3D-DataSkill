@@ -73,7 +73,6 @@ class WayveScenesPi3XDataset(BaseDataset):
         frame_num: int = 8,
         stride: int = 1,
         resolution: list[int] | tuple[int, int] = (512, 288),
-        layout: str = "nerfstudio",
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
         verbose: bool = False,
@@ -82,7 +81,6 @@ class WayveScenesPi3XDataset(BaseDataset):
         super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
         self.dataset_label = "WayveScenesPi3X"
         self.data_root = Path(data_root)
-        self.layout = layout
         self.transforms_name = transforms_name
         self.stride = stride
         self.verbose = verbose

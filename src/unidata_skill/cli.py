@@ -19,38 +19,44 @@ DATASET_LOADERS = {
         "aliases": {"kitti360", "kitti-360"},
         "class": Kitti360Pi3XDataset,
         "root_arg": "data_root",
-        "default_resolution": "512x384",
-        "defaults": {
+        "constructor_defaults": {
             "cameras": ["image_00"],
+        },
+        "validation": {
             "frame_num": 8,
             "stride": 5,
+            "resolution": "512x384",
             "max_samples": 4,
             "batch_size": 1,
         },
-        "warning": "KITTI-360 dense depth is not read in this direct loader; depthmap is a placeholder",
+        "warning": "KITTI-360 depthmap is projected sparse depth from Velodyne point clouds; dense depth is not produced online",
     },
     "blendedmvs": {
         "aliases": {"blendedmvs", "blendedmvg"},
         "class": BlendedMVGDataset,
         "root_arg": "data_root",
-        "default_resolution": "768x576",
-        "defaults": {
+        "constructor_defaults": {
             "mode": "train",
+            "verbose": False,
+        },
+        "validation": {
             "frame_num": 8,
+            "resolution": "768x576",
             "max_samples": 4,
             "batch_size": 1,
-            "verbose": False,
         },
     },
     "kitti": {
         "aliases": {"kitti", "kitti-odometry"},
         "class": KittiOdometryPi3XDataset,
         "root_arg": "data_root",
-        "default_resolution": "512x384",
-        "defaults": {
+        "constructor_defaults": {
             "cameras": ["image_2"],
+        },
+        "validation": {
             "frame_num": 8,
             "stride": 1,
+            "resolution": "512x384",
             "max_samples": 4,
             "batch_size": 1,
         },
@@ -60,11 +66,13 @@ DATASET_LOADERS = {
         "aliases": {"nuscenes", "nuScenes"},
         "class": NuScenesPi3XDataset,
         "root_arg": "data_root",
-        "default_resolution": "512x288",
-        "defaults": {
+        "constructor_defaults": {
             "version": "v1.0-mini",
+        },
+        "validation": {
             "frame_num": 6,
             "stride": 1,
+            "resolution": "512x288",
             "max_samples": 4,
             "batch_size": 1,
         },
@@ -74,10 +82,11 @@ DATASET_LOADERS = {
         "aliases": {"wayve", "wayvescenes", "wayvescenes101"},
         "class": WayveScenesPi3XDataset,
         "root_arg": "data_root",
-        "default_resolution": "512x288",
-        "defaults": {
+        "constructor_defaults": {},
+        "validation": {
             "frame_num": 8,
             "stride": 1,
+            "resolution": "512x288",
             "max_samples": 4,
             "batch_size": 1,
         },
@@ -87,11 +96,13 @@ DATASET_LOADERS = {
         "aliases": {"waymo-kitti", "waymo_kitti", "waymo-converted-kitti"},
         "class": WaymoKittiPi3XDataset,
         "root_arg": "data_root",
-        "default_resolution": "512x384",
-        "defaults": {
+        "constructor_defaults": {
             "cameras": ["image_2"],
+        },
+        "validation": {
             "frame_num": 8,
             "stride": 1,
+            "resolution": "512x384",
             "max_samples": 4,
             "batch_size": 1,
         },
@@ -114,11 +125,12 @@ def _loader_spec(dataset: str) -> dict[str, Any]:
     raise ValueError(f"unsupported dataset '{dataset}'")
 
 
-def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple[dict[str, Any], int, int, list[str]]:
-    options = {**spec.get("defaults", {}), **config.options}
+def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple[dict[str, Any], int, int, int, list[str]]:
+    options = {**spec.get("constructor_defaults", {}), **config.options}
+    validation = spec.get("validation", {})
 
     kwargs: dict[str, Any] = {spec["root_arg"]: config.root}
-    for key in ("layout", "roots", "optional_roots", "list_name"):
+    for key in ("roots", "optional_roots", "list_name"):
         if key in options:
             kwargs[key] = options[key]
     if "sequences" in options:
@@ -127,8 +139,6 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
         kwargs["cameras"] = tuple(options["cameras"])
     if "mode" in options:
         kwargs["mode"] = options["mode"]
-    if "stride" in options:
-        kwargs["stride"] = int(options["stride"])
     if "verbose" in options:
         kwargs["verbose"] = bool(options["verbose"])
     if "version" in options:
@@ -138,12 +148,14 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
     if "transforms_name" in options:
         kwargs["transforms_name"] = options["transforms_name"]
 
-    frame_num = int(options.get("frame_num", 8))
-    max_samples = int(options.get("max_samples", 4))
-    batch_size = int(options.get("batch_size", 1))
-    resolution = _parse_resolution(options.get("resolution", spec["default_resolution"]))
+    frame_num = int(validation.get("frame_num", 8))
+    max_samples = int(validation.get("max_samples", 4))
+    batch_size = int(validation.get("batch_size", 1))
+    resolution = _parse_resolution(validation.get("resolution", "512x384"))
     kwargs["frame_num"] = frame_num
     kwargs["resolution"] = resolution
+    if "stride" in validation:
+        kwargs["stride"] = int(validation["stride"])
 
     warnings = []
     if spec.get("warning"):

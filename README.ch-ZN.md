@@ -71,7 +71,6 @@ cp dataset_config.example.json dataset_config.local.json
       "label": "kitti360_train",
       "dataset": "kitti360",
       "root": "/mnt/datasets/KITTI-360",
-      "layout": "official",
       "roots": {
         "calibration": "/mnt/datasets/KITTI-360/calibration",
         "images": "/mnt/datasets/KITTI-360/data_2d_raw",
@@ -83,12 +82,7 @@ cp dataset_config.example.json dataset_config.local.json
         "semantics_3d": null
       },
       "sequences": ["2013_05_28_drive_0000_sync"],
-      "cameras": ["image_00"],
-      "frame_num": 8,
-      "stride": 5,
-      "resolution": "512x384",
-      "max_samples": 4,
-      "batch_size": 1
+      "cameras": ["image_00"]
     }
   ]
 }

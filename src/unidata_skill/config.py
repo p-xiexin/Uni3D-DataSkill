@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
+REMOVED_DATASET_CONFIG_KEYS = {"layout", "frame_num", "stride", "resolution", "max_samples", "batch_size"}
+
+
 @dataclass(frozen=True)
 class DatasetConfig:
     label: str
@@ -50,6 +53,10 @@ def load_dataset_configs(path: str | Path) -> list[DatasetConfig]:
         if not label or not dataset or not root:
             raise ValueError(f"datasets[{index}] must include label, dataset, and root")
         entry_name = f"datasets[{index}]"
+        removed_keys = sorted(REMOVED_DATASET_CONFIG_KEYS.intersection(entry))
+        if removed_keys:
+            keys = ", ".join(removed_keys)
+            raise ValueError(f"{entry_name} contains runtime-only or removed dataset config field(s): {keys}")
         _validate_path_mapping(entry, "roots", entry_name, allow_null=False)
         _validate_path_mapping(entry, "optional_roots", entry_name, allow_null=True)
         options = {key: value for key, value in entry.items() if key not in {"label", "dataset", "type", "root", "path"}}

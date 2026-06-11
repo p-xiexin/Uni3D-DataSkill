@@ -17,6 +17,7 @@ except ModuleNotFoundError:
 
 
 KITTI360_CAMERAS = ("image_00", "image_01")
+DEFAULT_LIDAR_ROOT_NAME = "data_3d_raw"
 
 
 def _strip_inline_comment(line: str) -> str:
@@ -43,6 +44,14 @@ def _parse_matrix_line(line: str, path: Path, line_no: int) -> tuple[str, np.nda
     if len(floats) == 12:
         return name.strip(), np.array(floats, dtype=np.float32).reshape(3, 4)
     raise ValueError(f"{path}:{line_no}: expected 9 or 12 numeric values for {name.strip()!r}, got {len(floats)}")
+
+
+def _parse_numeric_record(line: str, path: Path, line_no: int) -> tuple[str, np.ndarray] | None:
+    line = _strip_inline_comment(line)
+    if not line.strip() or ":" not in line:
+        return None
+    name, values = line.split(":", 1)
+    return name.strip(), np.array(_parse_float_tokens(values.split(), path, line_no), dtype=np.float32)
 
 
 def _parse_pose_line(line: str, path: Path, line_no: int) -> tuple[int, np.ndarray] | None:
@@ -83,7 +92,14 @@ def _require_dir(path: Path, name: str) -> Path:
     return path
 
 
-def load_perspective_intrinsics(calibration_root: Path) -> dict[str, np.ndarray]:
+@dataclass(frozen=True)
+class PerspectiveCalibration:
+    intrinsics: dict[str, np.ndarray]
+    projections: dict[str, np.ndarray]
+    rectifications: dict[str, np.ndarray]
+
+
+def load_perspective_calibration(calibration_root: Path) -> PerspectiveCalibration:
     path = calibration_root / "perspective.txt"
     records: dict[str, np.ndarray] = {}
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -92,10 +108,135 @@ def load_perspective_intrinsics(calibration_root: Path) -> dict[str, np.ndarray]
             records[parsed[0]] = parsed[1]
 
     intrinsics: dict[str, np.ndarray] = {}
+    projections: dict[str, np.ndarray] = {}
+    rectifications: dict[str, np.ndarray] = {}
     for camera_id, key in (("image_00", "P_rect_00"), ("image_01", "P_rect_01")):
         if key not in records:
             continue
+        projections[camera_id] = records[key].astype(np.float32)
         intrinsics[camera_id] = records[key][:3, :3].astype(np.float32)
+        rect_key = f"R_rect_{camera_id[-2:]}"
+        rectifications[camera_id] = records.get(rect_key, records.get("R_rect_00", np.eye(3, dtype=np.float32))).astype(np.float32)
+    return PerspectiveCalibration(intrinsics=intrinsics, projections=projections, rectifications=rectifications)
+
+
+def load_perspective_intrinsics(calibration_root: Path) -> dict[str, np.ndarray]:
+    return load_perspective_calibration(calibration_root).intrinsics
+
+
+def _load_numeric_records(path: Path) -> dict[str, np.ndarray]:
+    records: dict[str, np.ndarray] = {}
+    for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        parsed = _parse_numeric_record(line, path, line_no)
+        if parsed is not None:
+            records[parsed[0]] = parsed[1]
+    return records
+
+
+def load_cam0_to_velodyne(calibration_root: Path) -> np.ndarray:
+    path = calibration_root / "calib_cam_to_velo.txt"
+    if not path.is_file():
+        raise FileNotFoundError(f"calib_cam_to_velo.txt not found: {path}")
+    records = _load_numeric_records(path)
+    if "R" not in records or "T" not in records:
+        raise ValueError(f"{path}: expected R and T records")
+    if records["R"].size != 9 or records["T"].size != 3:
+        raise ValueError(f"{path}: expected R with 9 values and T with 3 values")
+    transform = np.eye(4, dtype=np.float32)
+    transform[:3, :3] = records["R"].reshape(3, 3)
+    transform[:3, 3] = records["T"].reshape(3)
+    if not np.isfinite(transform).all():
+        raise ValueError(f"{path}: calibration contains non-finite values")
+    return transform
+
+
+def make_rectified_lidar_to_camera_transform(cam0_to_velodyne: np.ndarray, rectification: np.ndarray) -> np.ndarray:
+    velodyne_to_cam0 = np.linalg.inv(cam0_to_velodyne).astype(np.float32)
+    rectified = np.eye(4, dtype=np.float32)
+    rectified[:3, :3] = rectification.astype(np.float32)
+    return (rectified @ velodyne_to_cam0).astype(np.float32)
+
+
+def read_velodyne_points(path: Path) -> np.ndarray:
+    values = np.fromfile(path, dtype=np.float32)
+    if values.size == 0:
+        return np.empty((0, 3), dtype=np.float32)
+    if values.size % 4 == 0:
+        return values.reshape(-1, 4)[:, :3].astype(np.float32)
+    if values.size % 3 == 0:
+        return values.reshape(-1, 3).astype(np.float32)
+    raise ValueError(f"{path}: expected float32 xyz or xyzi point records")
+
+
+def project_lidar_points_to_depth_image(
+    points_lidar: np.ndarray,
+    lidar_to_camera_rect: np.ndarray,
+    projection: np.ndarray,
+    image_shape: tuple[int, int],
+    min_depth: float = 0.1,
+    max_depth: float | None = None,
+) -> np.ndarray:
+    height, width = image_shape
+    depth_flat = np.full(height * width, np.inf, dtype=np.float32)
+    if points_lidar.size == 0:
+        return np.zeros((height, width), dtype=np.float32)
+
+    points_h = np.concatenate([points_lidar[:, :3], np.ones((points_lidar.shape[0], 1), dtype=np.float32)], axis=1)
+    points_camera = points_h @ lidar_to_camera_rect.T
+    depth = points_camera[:, 2]
+    finite = np.isfinite(points_camera).all(axis=1) & (depth > min_depth)
+    if max_depth is not None:
+        finite &= depth <= max_depth
+    if not finite.any():
+        return np.zeros((height, width), dtype=np.float32)
+
+    points_camera = points_camera[finite]
+    depth = depth[finite]
+    projected = points_camera @ projection.T
+    denom = projected[:, 2]
+    valid = np.isfinite(projected).all(axis=1) & (denom > min_depth)
+    if not valid.any():
+        return np.zeros((height, width), dtype=np.float32)
+
+    u = np.floor(projected[valid, 0] / denom[valid] + 0.5).astype(np.int32)
+    v = np.floor(projected[valid, 1] / denom[valid] + 0.5).astype(np.int32)
+    z = depth[valid].astype(np.float32)
+    inside = (u >= 0) & (u < width) & (v >= 0) & (v < height)
+    if not inside.any():
+        return np.zeros((height, width), dtype=np.float32)
+
+    flat = v[inside] * width + u[inside]
+    np.minimum.at(depth_flat, flat, z[inside])
+    depth_flat[~np.isfinite(depth_flat)] = 0.0
+    return depth_flat.reshape(height, width)
+
+
+def find_velodyne_path(lidar_root: Path, sequence: str, frame_id: int) -> Path:
+    candidates = (
+        lidar_root / sequence / "velodyne_points" / "data" / f"{frame_id:010d}.bin",
+        lidar_root / sequence / "velodyne_points" / "data" / f"{frame_id}.bin",
+        lidar_root / sequence / "velodyne" / f"{frame_id:010d}.bin",
+        lidar_root / sequence / "velodyne" / f"{frame_id}.bin",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"Velodyne point cloud not found for {sequence} frame {frame_id:010d} under {lidar_root}")
+
+
+def resolve_lidar_root(data_root: Path, component_roots: dict[str, Path], optional_roots: dict[str, Path | None]) -> Path | None:
+    lidar_root = component_roots.get("lidar")
+    if lidar_root is None:
+        optional_lidar_root = optional_roots.get("lidar")
+        if optional_lidar_root is not None:
+            lidar_root = optional_lidar_root
+    if lidar_root is None:
+        default_root = data_root / DEFAULT_LIDAR_ROOT_NAME
+        lidar_root = default_root if default_root.is_dir() else None
+    if lidar_root is not None:
+        _require_dir(lidar_root, "roots.lidar")
+    return lidar_root
+
     return intrinsics
 
 
@@ -142,7 +283,6 @@ class Kitti360Pi3XDataset(BaseDataset):
         frame_num: int = 8,
         stride: int = 5,
         resolution: list[int] | tuple[int, int] = (512, 384),
-        layout: str = "official",
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
         **kwargs: Any,
@@ -150,16 +290,23 @@ class Kitti360Pi3XDataset(BaseDataset):
         super().__init__(resolution=[list(resolution)], frame_num=frame_num, shuffle=False, **kwargs)
         self.dataset_label = "KITTI360Pi3X"
         self.data_root = Path(data_root)
-        self.layout = layout
         component_roots = _path_roots(roots)
         self.optional_roots = _optional_path_roots(optional_roots)
         self.calibration_root = _require_dir(component_roots.get("calibration", self.data_root / "calibration"), "roots.calibration")
         self.images_root = _require_dir(component_roots.get("images", self.data_root / "data_2d_raw"), "roots.images")
         self.poses_root = _require_dir(component_roots.get("poses", self.data_root / "data_poses"), "roots.poses")
+        self.lidar_root = resolve_lidar_root(self.data_root, component_roots, self.optional_roots)
         self.sequences = sequences or discover_sequences(self.images_root)
         self.cameras = cameras
         self.stride = stride
-        self.intrinsics = load_perspective_intrinsics(self.calibration_root)
+        self.perspective_calibration = load_perspective_calibration(self.calibration_root)
+        self.intrinsics = self.perspective_calibration.intrinsics
+        self.projections = self.perspective_calibration.projections
+        self.cam0_to_velodyne = load_cam0_to_velodyne(self.calibration_root)
+        self.lidar_to_camera_rect = {
+            camera_id: make_rectified_lidar_to_camera_transform(self.cam0_to_velodyne, rectification)
+            for camera_id, rectification in self.perspective_calibration.rectifications.items()
+        }
         self.poses = {sequence: load_cam0_to_world(self.poses_root, sequence) for sequence in self.sequences}
         self.frames = self._build_frames()
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
@@ -175,6 +322,8 @@ class Kitti360Pi3XDataset(BaseDataset):
             sequence_poses = self.poses.get(sequence, {})
             for camera_id in self.cameras:
                 if camera_id not in self.intrinsics:
+                    continue
+                if camera_id not in self.projections or camera_id not in self.lidar_to_camera_rect:
                     continue
                 image_dir = self.images_root / sequence / camera_id / "data_rect"
                 if not image_dir.is_dir():
@@ -217,7 +366,21 @@ class Kitti360Pi3XDataset(BaseDataset):
                 print(f"Warning: Failed to load image: {frame.image_path}", flush=True)
                 continue
             height, width = img.shape[:2]
-            depthmap = np.ones((height, width), dtype=np.float32)
+            if self.lidar_root is None:
+                raise FileNotFoundError(
+                    "KITTI-360 projected depth requires roots.lidar, optional_roots.lidar, "
+                    f"or {self.data_root / DEFAULT_LIDAR_ROOT_NAME}"
+                )
+            velodyne_path = find_velodyne_path(self.lidar_root, frame.sequence, frame.frame_id)
+            points_lidar = read_velodyne_points(velodyne_path)
+            depthmap = project_lidar_points_to_depth_image(
+                points_lidar,
+                self.lidar_to_camera_rect[frame.camera_id],
+                self.projections[frame.camera_id],
+                (height, width),
+            )
+            if not np.any(depthmap > 0):
+                raise ValueError(f"no projected lidar depth for {frame.image_path}")
             intrinsics = self.intrinsics[frame.camera_id].copy()
             img, depthmap, intrinsics = self._crop_resize_if_necessary(
                 img,
@@ -238,7 +401,9 @@ class Kitti360Pi3XDataset(BaseDataset):
                     "instance": f"{frame.camera_id}_{frame.frame_id:010d}.png",
                     "prefix": f"{scene}_{frame.camera_id}_{frame.frame_id:010d}",
                     "image_path": str(frame.image_path),
-                    "depth_source": "placeholder_missing_dense_depth",
+                    "depth_source": "projected_lidar_sparse",
+                    "depth_path": str(velodyne_path),
+                    "sparse_depth": depthmap.astype(np.float32).copy(),
                 }
             )
         return views

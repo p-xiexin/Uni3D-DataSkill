@@ -144,8 +144,8 @@ Each loader registry entry should define:
 - aliases
 - class
 - root argument name, currently `data_root` for direct loaders
-- default resolution
-- default options
+- constructor defaults for data-source choices such as default cameras or mode
+- validation constants used only by `validate-config`
 - optional warning text
 
 Do not add dataset-specific CLI commands unless the user explicitly asks for a
@@ -162,7 +162,6 @@ Dataset configs are JSON files with entries like:
       "label": "kitti360_train",
       "dataset": "kitti360",
       "root": "/mnt/datasets/KITTI-360",
-      "layout": "official",
       "roots": {
         "calibration": "/mnt/datasets/KITTI-360/calibration",
         "images": "/mnt/datasets/KITTI-360/data_2d_raw",
@@ -173,12 +172,7 @@ Dataset configs are JSON files with entries like:
         "semantics_2d": null,
         "semantics_3d": null
       },
-      "sequences": ["2013_05_28_drive_0000_sync"],
-      "frame_num": 8,
-      "stride": 5,
-      "resolution": "512x384",
-      "max_samples": 4,
-      "batch_size": 1
+      "sequences": ["2013_05_28_drive_0000_sync"]
     }
   ]
 }

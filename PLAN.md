@@ -29,7 +29,6 @@ be absent without making the dataset unusable.
 ```json
 {
   "dataset": "kitti360",
-  "layout": "official",
   "roots": {
     "calibration": "/mnt/datasets/KITTI-360/calibration",
     "images": "/mnt/datasets/KITTI-360/data_2d_raw",

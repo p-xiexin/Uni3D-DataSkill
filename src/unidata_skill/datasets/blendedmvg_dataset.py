@@ -110,7 +110,6 @@ class BlendedMVGDataset(BaseDataset):
         self,
         data_root: str | None = None,
         verbose: bool = False,
-        layout: str = "official",
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
         list_name: str | None = None,
@@ -123,7 +122,6 @@ class BlendedMVGDataset(BaseDataset):
         self.verbose = verbose
         self.dataset_label = "BlendedMVG"
         self.data_root = Path(data_root)
-        self.layout = layout
         component_roots = _path_roots(roots)
         self.optional_roots = _optional_path_roots(optional_roots)
         self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")

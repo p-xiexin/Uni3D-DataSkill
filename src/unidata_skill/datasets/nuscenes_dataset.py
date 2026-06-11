@@ -98,7 +98,6 @@ class NuScenesPi3XDataset(BaseDataset):
         frame_num: int = 6,
         stride: int = 1,
         resolution: list[int] | tuple[int, int] = (512, 288),
-        layout: str = "official",
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
         verbose: bool = False,
@@ -108,7 +107,6 @@ class NuScenesPi3XDataset(BaseDataset):
         self.dataset_label = "NuScenesPi3X"
         self.data_root = Path(data_root)
         self.version = version
-        self.layout = layout
         self.cameras = cameras
         self.stride = stride
         self.verbose = verbose
