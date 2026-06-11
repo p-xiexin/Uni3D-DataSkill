@@ -246,9 +246,9 @@ class BlendedMVGDataset(BaseDataset):
                     label=scene,
                     instance=img_name,
                     prefix=f"{scene}_{img_name}",
-                    depth_source="gt_dense",
-                    pose_source="gt",
-                    intrinsics_source="gt",
+                    depth_source="native_gt_dense",
+                    pose_source="native_gt",
+                    intrinsics_source="native_gt",
                     pseudo_label=False,
                     valid_mask_required=True,
                 )

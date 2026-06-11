@@ -12,6 +12,7 @@ from .datasets.kitti360_dataset import Kitti360Pi3XDataset
 from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset
 from .datasets.nuscenes_dataset import NuScenesPi3XDataset
 from .datasets.pi3x_validator import validate_pi3x_dataset
+from .datasets.sage_dataset import SagePi3XDataset
 from .datasets.uco3d_dataset import UCO3DPi3XDataset
 from .datasets.waymo_kitti_dataset import WaymoKittiPi3XDataset
 from .datasets.wayve_dataset import WayveScenesPi3XDataset
@@ -107,6 +108,19 @@ DATASET_LOADERS = {
             "batch_size": 1,
         },
         "warning": "nuScenes dense depth is not read in this direct loader; depthmap is a placeholder",
+    },
+    "sage": {
+        "aliases": {"sage", "sage-10k", "sage10k"},
+        "class": SagePi3XDataset,
+        "root_arg": "data_root",
+        "constructor_defaults": {},
+        "validation": {
+            "frame_num": 8,
+            "stride": 1,
+            "resolution": "512x384",
+            "max_samples": 4,
+            "batch_size": 1,
+        },
     },
     "wayve": {
         "aliases": {"wayve", "wayvescenes", "wayvescenes101"},
@@ -209,6 +223,12 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
         kwargs["pick_sequences"] = options["pick_sequences"]
     if "limit_sequences_to" in options:
         kwargs["limit_sequences_to"] = int(options["limit_sequences_to"])
+    if "domains" in options:
+        kwargs["domains"] = options["domains"]
+    if "settings" in options:
+        kwargs["settings"] = options["settings"]
+    if "route_ids" in options:
+        kwargs["route_ids"] = options["route_ids"]
 
     frame_num = int(validation.get("frame_num", 8))
     max_samples = int(validation.get("max_samples", 4))

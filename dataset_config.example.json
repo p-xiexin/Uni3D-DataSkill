@@ -31,6 +31,13 @@
         "cameras": null
       },
       "mode": "train"
+    },
+    {
+      "label": "sage_sample",
+      "dataset": "sage",
+      "root": "/mnt/datasets/SAGE-10k-0522",
+      "domains": ["blend"],
+      "settings": ["yaw_amplitude_0522"]
     }
   ]
 }

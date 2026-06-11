@@ -17,8 +17,8 @@ raw dataset root
 ```
 
 Implemented loaders include KITTI-360, KITTI odometry, nuScenes table layouts,
-WayveScenes-style transforms, Waymo KITTI-style converted layouts, and
-BlendedMVG.
+WayveScenes-style transforms, Waymo KITTI-style converted layouts, SAGE-10k
+sampled route layouts, and BlendedMVG.
 
 ## Requirements
 
@@ -107,6 +107,7 @@ Supported dataset keys:
 | `kitti360`, `kitti-360` | KITTI-360 raw perspective layout |
 | `kitti`, `kitti-odometry` | KITTI odometry-style layout |
 | `nuscenes` | nuScenes JSON table layout |
+| `sage`, `sage-10k`, `sage10k` | SAGE-10k sampled route layout |
 | `uco3d`, `uco3d-depth` | uCO3D official package wrapper |
 | `wayve`, `wayvescenes`, `wayvescenes101` | WayveScenes/Nerfstudio-style transforms |
 | `waymo-kitti`, `waymo_kitti`, `waymo-converted-kitti` | Waymo converted to KITTI-style layout |

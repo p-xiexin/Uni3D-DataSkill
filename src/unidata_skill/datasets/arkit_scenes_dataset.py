@@ -249,9 +249,9 @@ class ARKitScenesPi3XDataset(BaseDataset):
                     "prefix": f"{scene}_{frame.frame_id}",
                     "image_path": str(frame.image_path),
                     "depth_path": str(frame.depth_path),
-                    "depth_source": "gt_dense",
-                    "pose_source": "gt",
-                    "intrinsics_source": "gt",
+                    "depth_source": "native_gt_dense",
+                    "pose_source": "native_gt",
+                    "intrinsics_source": "native_gt",
                     "pseudo_label": False,
                     "valid_mask_required": True,
                 }

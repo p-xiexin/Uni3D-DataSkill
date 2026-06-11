@@ -172,9 +172,9 @@ signature:
 - 目标转换：如何进入本 Skill 的目标格式。
 - 风险点：需要下载样本或二次确认的问题。
 
-Metadata 中的模态来源层级统一按以下含义使用：
+Metadata 中的模态来源层级统一按以下含义使用。这里的“原生”只表示该字段由数据集发布包直接提供，不等于 ground truth；可写成 `原生gt` 或 `原生pseudo` 区分真值性。
 
-- 原生：数据集已经直接提供该模态或字段，adapter 读取后即可使用，但仍需做格式、单位、坐标系归一。
+- 原生：数据集发布包已经直接提供该模态或字段，adapter 读取后即可使用，但仍需做格式、单位、坐标系归一；如果该字段本身来自估计、重建或模型预测，写成 `原生pseudo`，不能当作 `原生gt`。
 - 渲染生成：数据集未直接提供该模态，但提供了 mesh、CAD、USD、GLB、URDF、3DGS 或场景配置等资产，可通过渲染器生成 RGB、depth、semantic、mask 等观测。
 - 采样生成：数据集没有固定观测序列或相机轨迹，需要由适配流程定义采样策略，例如相机位姿、视角数量、导航轨迹、frame pair 或物体观察角度；采样结果通常再用于渲染。
 - 派生：数据集未直接给出目标模态，但可由已有真实传感器或标注计算得到，例如 LiDAR 投影生成稀疏 depth、RGB-D 融合生成点云、mesh 采样生成点云。
@@ -1145,7 +1145,7 @@ Reader notes: `metadata.sqlite` is the authoritative index. Resolve video frames
 
 目标转换：读取 sqlite 作为主索引；视频解码成 RGB/mask frame；HDF5 读取 depth；pose 转 `T_c2w`；point cloud 与 GS 复制；LVIS/category/caption 写 annotations。适合 object-level multiview/3DGS 训练。
 
-训练分组：uCO3D 按 Group F 处理，`depth_maps.h5` 标记为 `depth_source=mono_pseudo`、`pseudo_label=true`。
+训练分组：uCO3D 按 Group F 处理，`depth_maps.h5` 标记为 `depth_source=native_pseudo_dense`、`pseudo_label=true`。
 
 风险点：sqlite schema 需固定版本解析；视频帧、depth_maps.h5 与 metadata frame index 必须严格对齐。数据量大，建议流式转换。
 
@@ -1660,6 +1660,28 @@ Format/layout: use the official SAGE repository, research page, and Hugging Face
 
 Reader notes: Hugging Face scenes are distributed as `*_layout_*.zip` packages. Code repository assets/scripts are not the dataset body; parse official packages and metadata together.
 
+Current sampled route layout:
+
+```text
+SAGE-10k-0522/
+  <domain>/
+    <layout_id>/
+      <trajectory_setting>/
+        <route_id>/
+          camera.yaml
+          trj_0.txt
+          vis/
+            color/
+              00000000_color_vis.png
+            depth/
+              00000000_*.tif
+```
+
+The direct loader indexes complete route paths. A unique sequence id is
+`<domain>/<layout_id>/<trajectory_setting>/<route_id>`, for example
+`blend/layout_21027b7b/yaw_amplitude_0522/route_1`. Color and depth frames are
+matched dynamically by frame id because route lengths are not fixed.
+
 目标转换：和 InteriorAgent 类似，属于 simulation scene-first 数据集。用 Isaac Sim RenderAgent 渲染 RGB-D/semantic/instance/normal/pose；保留 scene config、object metadata、room/task 信息。若包含机器人动作数据，可写入 `annotations/embodied_tasks.jsonl`。
 
 风险点：数据格式可能依赖 Isaac Sim 版本；大规模渲染成本高。需要明确相机采样策略和物理碰撞过滤。
@@ -1902,9 +1924,9 @@ Pi3X 类前馈几何训练不能把缺失字段伪装成真值。特别是 depth
 
 ```json
 {
-  "depth_source": "gt_dense|gt_sparse|rendered|projected_lidar_sparse|mvs_pseudo|mono_pseudo|missing",
-  "pose_source": "gt|sensor|colmap|slam|rendered|estimated|missing",
-  "intrinsics_source": "gt|metadata|colmap|exif_estimated|assumed",
+  "depth_source": "native_gt_dense|native_gt_sparse|native_pseudo_dense|rendered|projected_lidar_sparse|mvs_pseudo|mono_pseudo|missing",
+  "pose_source": "native_gt|native_pseudo|sensor|colmap|slam|rendered|estimated|missing",
+  "intrinsics_source": "native_gt|native_pseudo|metadata|colmap|exif_estimated|assumed",
   "pseudo_label": false,
   "valid_mask_required": true
 }
@@ -1928,7 +1950,7 @@ Pi3X 类前馈几何训练不能把缺失字段伪装成真值。特别是 depth
 | --- | --- |
 | 点云投影稀疏深度 | `depth_source=projected_lidar_sparse`；`valid_mask` 只覆盖有投影点的像素；记录传感器、时间同步和遮挡处理 |
 | 渲染深度 | `depth_source=rendered`；`pose_source=rendered`；记录 renderer、mesh version、near/far、采样策略和过滤条件 |
-| 伪几何 | `pseudo_label=true`；`pose_source=estimated|colmap|slam`；`depth_source=mvs_pseudo|mono_pseudo`；写入 confidence |
+| 伪几何 | `pseudo_label=true`；`pose_source=native_pseudo|estimated|colmap|slam`；`depth_source=native_pseudo_dense|mvs_pseudo|mono_pseudo`；写入 confidence |
 | 无几何 | `depth_source=missing`；`pose_source=missing`；`requires_depth=true` 的训练配置必须拒绝 |
 
 执行规则：
