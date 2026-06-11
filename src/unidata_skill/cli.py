@@ -4,22 +4,23 @@ import argparse
 from typing import Any
 
 from .config import DatasetConfig, load_dataset_configs
-from .datasets.arkit_scenes_dataset import ARKitScenesPi3XDataset
+from .datasets.arkit_scenes_dataset import ARKitScenesPi3XDataset, generate_arkit_scenes_index
 from .datasets.blendedmvg_dataset import BlendedMVGDataset
-from .datasets.hypersim_dataset import HypersimPi3XDataset
-from .datasets.kitti360_dataset import Kitti360Pi3XDataset
-from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset
-from .datasets.nuscenes_dataset import NuScenesPi3XDataset
+from .datasets.hypersim_dataset import HypersimPi3XDataset, generate_hypersim_index
+from .datasets.kitti360_dataset import Kitti360Pi3XDataset, generate_kitti360_index
+from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset, generate_kitti_odometry_index
+from .datasets.nuscenes_dataset import NuScenesPi3XDataset, generate_nuscenes_index
 from .datasets.sage_dataset import SagePi3XDataset, generate_sage_index
 from .datasets.uco3d_dataset import UCO3DPi3XDataset
-from .datasets.waymo_kitti_dataset import WaymoKittiPi3XDataset
-from .datasets.wayve_dataset import WayveScenesPi3XDataset
+from .datasets.waymo_kitti_dataset import WaymoKittiPi3XDataset, generate_waymo_kitti_index
+from .datasets.wayve_dataset import WayveScenesPi3XDataset, generate_wayve_index
 
 
 DATASET_LOADERS = {
     "arkitscenes": {
         "aliases": {"arkitscenes", "arkit-scenes", "arkit"},
         "class": ARKitScenesPi3XDataset,
+        "index_builder": generate_arkit_scenes_index,
         "defaults": {},
         "frame_num": 8,
         "resolution": [512, 384],
@@ -27,6 +28,7 @@ DATASET_LOADERS = {
     "kitti360": {
         "aliases": {"kitti360", "kitti-360"},
         "class": Kitti360Pi3XDataset,
+        "index_builder": generate_kitti360_index,
         "defaults": {"cameras": ["image_00"]},
         "frame_num": 8,
         "resolution": [512, 384],
@@ -41,6 +43,7 @@ DATASET_LOADERS = {
     "kitti": {
         "aliases": {"kitti", "kitti-odometry"},
         "class": KittiOdometryPi3XDataset,
+        "index_builder": generate_kitti_odometry_index,
         "defaults": {"cameras": ["image_2"]},
         "frame_num": 8,
         "resolution": [512, 384],
@@ -48,6 +51,7 @@ DATASET_LOADERS = {
     "hypersim": {
         "aliases": {"hypersim", "hyper-sim"},
         "class": HypersimPi3XDataset,
+        "index_builder": generate_hypersim_index,
         "defaults": {},
         "frame_num": 8,
         "resolution": [512, 384],
@@ -55,6 +59,7 @@ DATASET_LOADERS = {
     "nuscenes": {
         "aliases": {"nuscenes", "nuScenes"},
         "class": NuScenesPi3XDataset,
+        "index_builder": generate_nuscenes_index,
         "defaults": {"version": "v1.0-mini"},
         "frame_num": 6,
         "resolution": [512, 288],
@@ -70,6 +75,7 @@ DATASET_LOADERS = {
     "wayve": {
         "aliases": {"wayve", "wayvescenes", "wayvescenes101"},
         "class": WayveScenesPi3XDataset,
+        "index_builder": generate_wayve_index,
         "defaults": {},
         "frame_num": 8,
         "resolution": [512, 288],
@@ -84,6 +90,7 @@ DATASET_LOADERS = {
     "waymo-kitti": {
         "aliases": {"waymo-kitti", "waymo_kitti", "waymo-converted-kitti"},
         "class": WaymoKittiPi3XDataset,
+        "index_builder": generate_waymo_kitti_index,
         "defaults": {"cameras": ["image_2"]},
         "frame_num": 8,
         "resolution": [512, 384],
@@ -120,6 +127,16 @@ DATASET_OPTION_KEYS = (
 
 INDEX_OPTION_KEYS = (
     "roots",
+    "optional_roots",
+    "sequences",
+    "cameras",
+    "version",
+    "scene_dirs",
+    "transforms_name",
+    "scan_ids",
+    "splits",
+    "camera_ids",
+    "fov_x_degrees",
     "domains",
     "layouts",
     "settings",

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 import math
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 from datasets.base.base_dataset import BaseDataset
 
@@ -29,6 +30,19 @@ def _require_dir(path: Path, name: str) -> Path:
     if not path.is_dir():
         raise FileNotFoundError(f"{name} directory not found: {path}")
     return path
+
+
+def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Path:
+    path = Path(value)
+    candidates = [path] if path.is_absolute() else [path, data_root / path]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
+
+
+def _relative(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
 
 
 def _read_rgb_image(path: Path) -> np.ndarray | None:
@@ -101,85 +115,62 @@ def _read_depth_png_meters(path: Path) -> np.ndarray:
     return depth / 1000.0
 
 
-@dataclass(frozen=True)
-class ARKitScenesFrame:
-    scan_id: str
-    frame_id: str
-    image_path: Path
-    depth_path: Path
-    intrinsics: np.ndarray
-    camera_pose: np.ndarray
+def _default_scans_root(data_root: Path) -> Path:
+    if (data_root / "3dod").is_dir():
+        return data_root / "3dod"
+    return data_root
 
 
-class ARKitScenesPi3XDataset(BaseDataset):
-    def __init__(
-        self,
-        data_root: str | Path,
-        verbose: bool = False,
-        scan_ids: list[str] | None = None,
-        splits: tuple[str, ...] = ("Training", "Validation"),
-        roots: dict[str, str | Path] | None = None,
-        optional_roots: dict[str, str | Path | None] | None = None,
-        **kwargs: Any,
-    ) -> None:
-        self.verbose = verbose
-        super().__init__(**kwargs)
-        self.dataset_label = "ARKitScenesPi3X"
-        self.data_root = Path(data_root)
-        component_roots = _path_roots(roots)
-        self.optional_roots = _optional_path_roots(optional_roots)
-        self.scans_root = _require_dir(component_roots.get("scans", self._default_scans_root()), "roots.scans")
-        self.splits = splits
-        self.scan_dirs = self._discover_scan_dirs(scan_ids)
-        self.sequences = sorted(self.scan_dirs)
-        self.frames = {scan_id: self._build_scan_frames(scan_id, scan_dir) for scan_id, scan_dir in self.scan_dirs.items()}
-        self.num_imgs = {scan_id: len(frames) for scan_id, frames in self.frames.items()}
-        if self.verbose:
-            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
-        print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.scans_root}", file=sys.stderr, flush=True)
+def _frames_dir(scan_dir: Path) -> Path | None:
+    direct = scan_dir / f"{scan_dir.name}_frames"
+    if direct.is_dir():
+        return direct
+    matches = sorted(scan_dir.glob("*_frames"))
+    return matches[0] if matches else None
 
-    def __len__(self) -> int:
-        return len(self.sequences)
 
-    def _default_scans_root(self) -> Path:
-        if (self.data_root / "3dod").is_dir():
-            return self.data_root / "3dod"
-        return self.data_root
+def _find_scan_dir(scans_root: Path, scan_id: str, splits: tuple[str, ...]) -> Path:
+    candidates = [scans_root / split / scan_id for split in splits]
+    candidates += [scans_root / "sample_data" / scan_id, scans_root / scan_id]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError(f"ARKitScenes scan not found under {scans_root}: {scan_id}")
 
-    def _discover_scan_dirs(self, scan_ids: list[str] | None) -> dict[str, Path]:
-        if scan_ids:
-            return {scan_id: self._find_scan_dir(scan_id) for scan_id in scan_ids}
-        scan_dirs: dict[str, Path] = {}
-        roots = [self.scans_root / split for split in self.splits if (self.scans_root / split).is_dir()]
-        if (self.scans_root / "sample_data").is_dir():
-            roots.append(self.scans_root / "sample_data")
-        if not roots:
-            roots = [self.scans_root]
-        for root in roots:
-            for path in sorted(root.iterdir()):
-                if path.is_dir() and self._frames_dir(path) is not None:
-                    scan_dirs[path.name] = path
-        return scan_dirs
 
-    def _find_scan_dir(self, scan_id: str) -> Path:
-        candidates = [self.scans_root / split / scan_id for split in self.splits]
-        candidates += [self.scans_root / "sample_data" / scan_id, self.scans_root / scan_id]
-        for candidate in candidates:
-            if candidate.is_dir():
-                return candidate
-        raise FileNotFoundError(f"ARKitScenes scan not found under {self.scans_root}: {scan_id}")
+def _discover_scan_dirs(scans_root: Path, splits: tuple[str, ...], scan_ids: list[str] | None) -> dict[str, Path]:
+    if scan_ids:
+        return {scan_id: _find_scan_dir(scans_root, scan_id, splits) for scan_id in scan_ids}
+    scan_dirs: dict[str, Path] = {}
+    roots = [scans_root / split for split in splits if (scans_root / split).is_dir()]
+    if (scans_root / "sample_data").is_dir():
+        roots.append(scans_root / "sample_data")
+    if not roots:
+        roots = [scans_root]
+    for root in roots:
+        for path in sorted(root.iterdir()):
+            if path.is_dir() and _frames_dir(path) is not None:
+                scan_dirs[path.name] = path
+    return scan_dirs
 
-    def _frames_dir(self, scan_dir: Path) -> Path | None:
-        direct = scan_dir / f"{scan_dir.name}_frames"
-        if direct.is_dir():
-            return direct
-        matches = sorted(scan_dir.glob("*_frames"))
-        return matches[0] if matches else None
 
-    def _build_scan_frames(self, scan_id: str, scan_dir: Path) -> list[ARKitScenesFrame]:
-        frames_dir = self._frames_dir(scan_dir)
+def generate_arkit_scenes_index(
+    data_root: str | Path,
+    output_path: str | Path | None = None,
+    scan_ids: list[str] | None = None,
+    splits: tuple[str, ...] = ("Training", "Validation"),
+    roots: dict[str, str | Path] | None = None,
+) -> dict[str, Any]:
+    data_root = Path(data_root)
+    scans_root = _require_dir(_path_roots(roots).get("scans", _default_scans_root(data_root)), "roots.scans")
+    scan_dirs = _discover_scan_dirs(scans_root, splits, scan_ids)
+
+    records = []
+    for scan_id in tqdm(sorted(scan_dirs), desc="[ARKitScenes] building index", unit="scan"):
+        scan_dir = scan_dirs[scan_id]
+        frames_dir = _frames_dir(scan_dir)
         if frames_dir is None:
-            return []
+            continue
         image_dir = frames_dir / "wide"
         depth_dir = frames_dir / "depth_densified"
         intrinsics_dir = frames_dir / "color_intrinsics"
@@ -192,7 +183,7 @@ class ARKitScenesPi3XDataset(BaseDataset):
         poses = _read_trajectory(pose_path)
         intrinsics_by_time = {_timestamp_from_stem(path): _read_pincam(path) for path in intrinsics_dir.glob("*.pincam")}
         depths_by_stem = {path.stem: path for path in depth_dir.glob("*.png")}
-        frames: list[ARKitScenesFrame] = []
+        frames = []
         for image_path in sorted(image_dir.glob("*.png")):
             timestamp = _timestamp_from_stem(image_path)
             depth_path = depths_by_stem.get(image_path.stem)
@@ -200,8 +191,68 @@ class ARKitScenesPi3XDataset(BaseDataset):
             pose = _nearest_by_timestamp(timestamp, poses)
             if depth_path is None or intrinsics is None or pose is None:
                 continue
-            frames.append(ARKitScenesFrame(scan_id, image_path.stem, image_path, depth_path, intrinsics.copy(), pose.copy()))
-        return frames
+            frames.append(
+                {
+                    "frame_id": image_path.stem,
+                    "image": _relative(image_path, scans_root),
+                    "depth": _relative(depth_path, scans_root),
+                    "camera_intrinsics": intrinsics.astype(np.float32).tolist(),
+                    "camera_pose": pose.astype(np.float32).tolist(),
+                }
+            )
+        records.append({"sequence_id": scan_id, "frames": frames})
+
+    index = {"version": 1, "sequences": records}
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    return index
+
+
+class ARKitScenesPi3XDataset(BaseDataset):
+    def __init__(
+        self,
+        data_root: str | Path,
+        verbose: bool = False,
+        index_file: str | Path | None = None,
+        scan_ids: list[str] | None = None,
+        splits: tuple[str, ...] = ("Training", "Validation"),
+        roots: dict[str, str | Path] | None = None,
+        optional_roots: dict[str, str | Path | None] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.verbose = verbose
+        super().__init__(**kwargs)
+        self.dataset_label = "ARKitScenesPi3X"
+        self.data_root = Path(data_root)
+        component_roots = _path_roots(roots)
+        self.optional_roots = _optional_path_roots(optional_roots)
+        self.scans_root = _require_dir(component_roots.get("scans", _default_scans_root(self.data_root)), "roots.scans")
+        self.splits = splits
+
+        if index_file is None:
+            index = generate_arkit_scenes_index(self.data_root, scan_ids=scan_ids, splits=splits, roots=roots)
+        else:
+            index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
+            index = json.loads(index_file_path.read_text(encoding="utf-8"))
+
+        selected = set(scan_ids or [])
+        self.sequences = []
+        self.frames = {}
+        for record in index.get("sequences", []):
+            scan_id = record["sequence_id"]
+            if selected and scan_id not in selected:
+                continue
+            self.sequences.append(scan_id)
+            self.frames[scan_id] = record.get("frames", [])
+        self.num_imgs = {scan_id: len(frames) for scan_id, frames in self.frames.items()}
+        if self.verbose:
+            print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
+        print(f"[{self.dataset_label}] Found {len(self.sequences)} unique videos in {self.scans_root}", file=sys.stderr, flush=True)
+
+    def __len__(self) -> int:
+        return len(self.sequences)
 
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
@@ -216,31 +267,33 @@ class ARKitScenesPi3XDataset(BaseDataset):
         views = []
         for idx in idxs:
             frame = frames[idx]
-            img = _read_rgb_image(frame.image_path)
+            image_path = self.scans_root / frame["image"]
+            depth_path = self.scans_root / frame["depth"]
+            img = _read_rgb_image(image_path)
             if img is None:
                 continue
-            depthmap = _read_depth_png_meters(frame.depth_path)
-            intrinsics = frame.intrinsics.copy()
+            depthmap = _read_depth_png_meters(depth_path)
+            intrinsics = np.array(frame["camera_intrinsics"], dtype=np.float32)
             img, depthmap, intrinsics = self._crop_resize_if_necessary(
                 img,
                 depthmap,
                 intrinsics,
                 resolution,
                 rng=rng,
-                info=str(frame.image_path),
+                info=str(image_path),
             )[:3]
             views.append(
                 {
                     "img": img,
                     "depthmap": depthmap.astype(np.float32),
-                    "camera_pose": frame.camera_pose.astype(np.float32),
+                    "camera_pose": np.array(frame["camera_pose"], dtype=np.float32),
                     "camera_intrinsics": intrinsics.astype(np.float32),
                     "dataset": self.dataset_label,
                     "label": scene,
-                    "instance": frame.frame_id,
-                    "prefix": f"{scene}_{frame.frame_id}",
-                    "image_path": str(frame.image_path),
-                    "depth_path": str(frame.depth_path),
+                    "instance": frame["frame_id"],
+                    "prefix": f"{scene}_{frame['frame_id']}",
+                    "image_path": str(image_path),
+                    "depth_path": str(depth_path),
                     "depth_source": "native_gt_dense",
                     "pose_source": "native_gt",
                     "intrinsics_source": "native_gt",

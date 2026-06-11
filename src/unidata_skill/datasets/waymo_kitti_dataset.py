@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 from datasets.base.base_dataset import BaseDataset
 
@@ -40,6 +41,19 @@ def _require_dir(path: Path, name: str) -> Path:
     if not path.is_dir():
         raise FileNotFoundError(f"{name} directory not found: {path}")
     return path
+
+
+def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Path:
+    path = Path(value)
+    candidates = [path] if path.is_absolute() else [path, data_root / path]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
+
+
+def _relative(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
 
 
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
@@ -76,9 +90,7 @@ def _parse_calib(path: Path) -> dict[str, np.ndarray]:
     records: dict[str, np.ndarray] = {}
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = _strip_inline_comment(line)
-        if not line:
-            continue
-        if ":" not in line:
+        if not line or ":" not in line:
             continue
         key, value = line.split(":", 1)
         values = _parse_float_tokens(value.split(), path, line_no)
@@ -109,14 +121,58 @@ def _camera_key(camera: str) -> str:
     return f"P{int(suffix)}"
 
 
-@dataclass(frozen=True)
-class WaymoKittiFrame:
-    sequence: str
-    camera_id: str
-    frame_id: str
-    image_path: Path
-    camera_intrinsics: np.ndarray
-    camera_pose: np.ndarray
+def generate_waymo_kitti_index(
+    data_root: str | Path,
+    output_path: str | Path | None = None,
+    sequences: list[str] | None = None,
+    cameras: tuple[str, ...] = ("image_2",),
+    roots: dict[str, str | Path] | None = None,
+) -> dict[str, Any]:
+    data_root = Path(data_root)
+    component_roots = _path_roots(roots)
+    sequences_root = _require_dir(component_roots.get("sequences", data_root / "sequences"), "roots.sequences")
+    poses_root = _require_dir(component_roots.get("poses", data_root / "poses"), "roots.poses")
+    sequence_names = sequences or sorted(path.name for path in sequences_root.iterdir() if path.is_dir())
+
+    records = []
+    for sequence in tqdm(sequence_names, desc="[WaymoKitti] building index", unit="sequence"):
+        sequence_dir = sequences_root / sequence
+        calib = _parse_calib(sequence_dir / "calib.txt")
+        poses = _parse_poses(poses_root / f"{sequence}.txt")
+        frames = []
+        for camera in cameras:
+            camera_key = _camera_key(camera)
+            if camera_key not in calib:
+                continue
+            image_dir = sequence_dir / camera
+            if not image_dir.is_dir() and camera.startswith("image_"):
+                image_dir = sequence_dir / f"image_{int(camera.split('_')[-1]):02d}"
+            if not image_dir.is_dir():
+                continue
+            intrinsics = calib[camera_key][:3, :3].astype(np.float32)
+            image_paths = sorted(list(image_dir.glob("*.png")) + list(image_dir.glob("*.jpg")))
+            for image_path in image_paths:
+                idx = int(image_path.stem)
+                if idx >= len(poses):
+                    continue
+                frames.append(
+                    {
+                        "camera_id": camera,
+                        "frame_id": image_path.stem,
+                        "image": _relative(image_path, sequences_root),
+                        "camera_intrinsics": intrinsics.tolist(),
+                        "camera_pose": poses[idx].astype(np.float32).tolist(),
+                    }
+                )
+        frames.sort(key=lambda item: (item["frame_id"], item["camera_id"]))
+        records.append({"sequence_id": sequence, "frames": frames})
+
+    index = {"version": 1, "sequences": records}
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    return index
 
 
 class WaymoKittiPi3XDataset(BaseDataset):
@@ -124,6 +180,7 @@ class WaymoKittiPi3XDataset(BaseDataset):
         self,
         data_root: str | Path,
         verbose: bool = False,
+        index_file: str | Path | None = None,
         sequences: list[str] | None = None,
         cameras: tuple[str, ...] = ("image_2",),
         roots: dict[str, str | Path] | None = None,
@@ -140,8 +197,21 @@ class WaymoKittiPi3XDataset(BaseDataset):
         self.sequences_root = _require_dir(component_roots.get("sequences", self.data_root / "sequences"), "roots.sequences")
         self.poses_root = _require_dir(component_roots.get("poses", self.data_root / "poses"), "roots.poses")
 
-        self.sequences = sequences or sorted(path.name for path in self.sequences_root.iterdir() if path.is_dir())
-        self.frames = {sequence: self._build_sequence_frames(sequence) for sequence in self.sequences}
+        if index_file is None:
+            index = generate_waymo_kitti_index(self.data_root, sequences=sequences, cameras=cameras, roots=roots)
+        else:
+            index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
+            index = json.loads(index_file_path.read_text(encoding="utf-8"))
+
+        selected = set(sequences or [])
+        self.sequences = []
+        self.frames = {}
+        for record in index.get("sequences", []):
+            sequence = record["sequence_id"]
+            if selected and sequence not in selected:
+                continue
+            self.sequences.append(sequence)
+            self.frames[sequence] = record.get("frames", [])
         self.num_imgs = {sequence: len(frames) for sequence, frames in self.frames.items()}
         if self.verbose:
             print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
@@ -149,31 +219,6 @@ class WaymoKittiPi3XDataset(BaseDataset):
 
     def __len__(self) -> int:
         return len(self.sequences)
-
-    def _build_sequence_frames(self, sequence: str) -> list[WaymoKittiFrame]:
-        sequence_dir = self.sequences_root / sequence
-        calib = _parse_calib(sequence_dir / "calib.txt")
-        pose_path = self.poses_root / f"{sequence}.txt"
-        poses = _parse_poses(pose_path)
-
-        frames: list[WaymoKittiFrame] = []
-        for camera in self.cameras:
-            camera_key = _camera_key(camera)
-            if camera_key not in calib:
-                continue
-            intrinsics = calib[camera_key][:3, :3].astype(np.float32)
-            image_dir = sequence_dir / camera
-            if not image_dir.is_dir() and camera.startswith("image_"):
-                image_dir = sequence_dir / f"image_{int(camera.split('_')[-1]):02d}"
-            if not image_dir.is_dir():
-                continue
-            image_paths = sorted(list(image_dir.glob("*.png")) + list(image_dir.glob("*.jpg")))
-            for image_path in image_paths:
-                idx = int(image_path.stem)
-                if idx >= len(poses):
-                    continue
-                frames.append(WaymoKittiFrame(sequence, camera, image_path.stem, image_path, intrinsics, poses[idx]))
-        return sorted(frames, key=lambda item: (item.frame_id, item.camera_id))
 
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
@@ -190,24 +235,25 @@ class WaymoKittiPi3XDataset(BaseDataset):
         target_width, target_height = _as_resolution(resolution)
         for idx in idxs:
             frame = frames[idx]
-            img = _read_rgb_image(frame.image_path)
+            image_path = self.sequences_root / frame["image"]
+            img = _read_rgb_image(image_path)
             if img is None:
-                print(f"Warning: Failed to load image: {frame.image_path}", flush=True)
+                print(f"Warning: Failed to load image: {image_path}", flush=True)
                 continue
 
             height, width = img.shape[:2]
             depthmap = np.ones((height, width), dtype=np.float32)
-            intrinsics = frame.camera_intrinsics.copy()
+            intrinsics = np.array(frame["camera_intrinsics"], dtype=np.float32)
             view = {
                 "img": img,
                 "depthmap": depthmap,
-                "camera_pose": frame.camera_pose.astype(np.float32),
+                "camera_pose": np.array(frame["camera_pose"], dtype=np.float32),
                 "camera_intrinsics": intrinsics.astype(np.float32),
                 "dataset": self.dataset_label,
                 "label": scene,
-                "instance": f"{frame.camera_id}_{frame.frame_id}{frame.image_path.suffix}",
-                "prefix": f"{scene}_{frame.camera_id}_{frame.frame_id}",
-                "image_path": str(frame.image_path),
+                "instance": f"{frame['camera_id']}_{frame['frame_id']}{image_path.suffix}",
+                "prefix": f"{scene}_{frame['camera_id']}_{frame['frame_id']}",
+                "image_path": str(image_path),
                 "depth_source": "placeholder_missing_dense_depth",
             }
             img2, depth2, intrinsics2 = self._crop_resize_if_necessary(
@@ -216,7 +262,7 @@ class WaymoKittiPi3XDataset(BaseDataset):
                 intrinsics,
                 (target_width, target_height),
                 rng=rng,
-                info=str(frame.image_path),
+                info=str(image_path),
             )[:3]
             view["img"] = img2
             view["depthmap"] = depth2.astype(np.float32)

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 from datasets.base.base_dataset import BaseDataset
 
@@ -23,6 +24,19 @@ def _require_dir(path: Path, name: str) -> Path:
     if not path.is_dir():
         raise FileNotFoundError(f"{name} directory not found: {path}")
     return path
+
+
+def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Path:
+    path = Path(value)
+    candidates = [path] if path.is_absolute() else [path, data_root / path]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
+
+
+def _relative(path: Path, root: Path) -> str:
+    return path.relative_to(root).as_posix()
 
 
 def _read_hdf5_dataset(path: Path) -> np.ndarray:
@@ -92,15 +106,65 @@ def _ray_distance_to_planar_depth(distance: np.ndarray, intrinsics: np.ndarray) 
     return (distance / ray_norm).astype(np.float32)
 
 
-@dataclass(frozen=True)
-class HypersimFrame:
-    scene: str
-    camera_id: str
-    frame_no: int
-    preview_path: Path | None
-    color_hdf5_path: Path | None
-    depth_path: Path
-    camera_pose: np.ndarray
+def generate_hypersim_index(
+    data_root: str | Path,
+    output_path: str | Path | None = None,
+    scene_dirs: list[str] | None = None,
+    camera_ids: list[str] | None = None,
+    roots: dict[str, str | Path] | None = None,
+    fov_x_degrees: float = 60.0,
+) -> dict[str, Any]:
+    del fov_x_degrees
+    data_root = Path(data_root)
+    scenes_root = _require_dir(_path_roots(roots).get("scenes", data_root), "roots.scenes")
+    scene_names = scene_dirs or sorted(path.name for path in scenes_root.iterdir() if (path / "_detail").is_dir())
+    allowed_cameras = set(camera_ids or [])
+
+    records = []
+    for scene in tqdm(scene_names, desc="[Hypersim] building index", unit="scene"):
+        scene_dir = scenes_root / scene
+        detail_dir = scene_dir / "_detail"
+        camera_dirs = sorted(path for path in detail_dir.glob("cam_*") if path.is_dir())
+        if allowed_cameras:
+            camera_dirs = [path for path in camera_dirs if path.name in allowed_cameras]
+
+        frames = []
+        for camera_dir in camera_dirs:
+            camera_id = camera_dir.name
+            orientations = _read_hdf5_dataset(camera_dir / "camera_keyframe_orientations.hdf5").astype(np.float32)
+            positions = _read_hdf5_dataset(camera_dir / "camera_keyframe_positions.hdf5").astype(np.float32)
+            depth_dir = scene_dir / "images" / f"scene_{camera_id}_geometry_hdf5"
+            color_dir = scene_dir / "images" / f"scene_{camera_id}_final_hdf5"
+            if not depth_dir.is_dir():
+                continue
+            for depth_path in sorted(depth_dir.glob("frame.*.depth_meters.hdf5")):
+                frame_no = _frame_number_from_depth(depth_path)
+                if frame_no >= len(orientations) or frame_no >= len(positions):
+                    continue
+                pose = np.eye(4, dtype=np.float32)
+                pose[:3, :3] = orientations[frame_no] @ np.diag([1.0, -1.0, -1.0]).astype(np.float32)
+                pose[:3, 3] = positions[frame_no]
+                color_hdf5 = color_dir / f"frame.{frame_no:04d}.color.hdf5"
+                preview_path = _find_preview_image(scene_dir, camera_id, frame_no)
+                frames.append(
+                    {
+                        "camera_id": camera_id,
+                        "frame_no": frame_no,
+                        "preview": None if preview_path is None else _relative(preview_path, scenes_root),
+                        "color_hdf5": _relative(color_hdf5, scenes_root) if color_hdf5.is_file() else None,
+                        "depth": _relative(depth_path, scenes_root),
+                        "camera_pose": pose.astype(np.float32).tolist(),
+                    }
+                )
+        frames.sort(key=lambda frame: (frame["camera_id"], frame["frame_no"]))
+        records.append({"sequence_id": scene, "frames": frames})
+
+    index = {"version": 1, "sequences": records}
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    return index
 
 
 class HypersimPi3XDataset(BaseDataset):
@@ -108,6 +172,7 @@ class HypersimPi3XDataset(BaseDataset):
         self,
         data_root: str | Path,
         verbose: bool = False,
+        index_file: str | Path | None = None,
         scene_dirs: list[str] | None = None,
         camera_ids: list[str] | None = None,
         roots: dict[str, str | Path] | None = None,
@@ -122,9 +187,32 @@ class HypersimPi3XDataset(BaseDataset):
         component_roots = _path_roots(roots)
         self.optional_roots = _optional_path_roots(optional_roots)
         self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")
-        self.camera_ids = camera_ids
-        self.sequences = scene_dirs or sorted(path.name for path in self.scenes_root.iterdir() if (path / "_detail").is_dir())
-        self.frames = {scene: self._build_scene_frames(scene) for scene in self.sequences}
+
+        if index_file is None:
+            index = generate_hypersim_index(
+                self.data_root,
+                scene_dirs=scene_dirs,
+                camera_ids=camera_ids,
+                roots=roots,
+                fov_x_degrees=self.fov_x_degrees,
+            )
+        else:
+            index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
+            index = json.loads(index_file_path.read_text(encoding="utf-8"))
+
+        selected = set(scene_dirs or [])
+        self.sequences = []
+        self.frames = {}
+        for record in index.get("sequences", []):
+            scene = record["sequence_id"]
+            if selected and scene not in selected:
+                continue
+            frames = record.get("frames", [])
+            if camera_ids is not None:
+                allowed = set(camera_ids)
+                frames = [frame for frame in frames if frame["camera_id"] in allowed]
+            self.sequences.append(scene)
+            self.frames[scene] = frames
         self.num_imgs = {scene: len(frames) for scene, frames in self.frames.items()}
         if self.verbose:
             print(f"[{self.dataset_label}] Sequences of {self.dataset_label} dataset:", self.sequences)
@@ -132,45 +220,6 @@ class HypersimPi3XDataset(BaseDataset):
 
     def __len__(self) -> int:
         return len(self.sequences)
-
-    def _build_scene_frames(self, scene: str) -> list[HypersimFrame]:
-        scene_dir = self.scenes_root / scene
-        detail_dir = scene_dir / "_detail"
-        camera_dirs = sorted(path for path in detail_dir.glob("cam_*") if path.is_dir())
-        if self.camera_ids is not None:
-            allowed = set(self.camera_ids)
-            camera_dirs = [path for path in camera_dirs if path.name in allowed]
-
-        frames: list[HypersimFrame] = []
-        for camera_dir in camera_dirs:
-            camera_id = camera_dir.name
-            orientations = _read_hdf5_dataset(camera_dir / "camera_keyframe_orientations.hdf5").astype(np.float32)
-            positions = _read_hdf5_dataset(camera_dir / "camera_keyframe_positions.hdf5").astype(np.float32)
-            depth_dir = scene_dir / "images" / f"scene_{camera_id}_geometry_hdf5"
-            color_dir = scene_dir / "images" / f"scene_{camera_id}_final_hdf5"
-            if not depth_dir.is_dir():
-                continue
-            for depth_path in sorted(depth_dir.glob("frame.*.depth_meters.hdf5")):
-                frame_no = _frame_number_from_depth(depth_path)
-                if frame_no >= len(orientations) or frame_no >= len(positions):
-                    continue
-                pose = np.eye(4, dtype=np.float32)
-                # Hypersim camera axes are x-right, y-up, z-backward; convert to OpenCV camera axes.
-                pose[:3, :3] = orientations[frame_no] @ np.diag([1.0, -1.0, -1.0]).astype(np.float32)
-                pose[:3, 3] = positions[frame_no]
-                color_hdf5 = color_dir / f"frame.{frame_no:04d}.color.hdf5"
-                frames.append(
-                    HypersimFrame(
-                        scene=scene,
-                        camera_id=camera_id,
-                        frame_no=frame_no,
-                        preview_path=_find_preview_image(scene_dir, camera_id, frame_no),
-                        color_hdf5_path=color_hdf5 if color_hdf5.is_file() else None,
-                        depth_path=depth_path,
-                        camera_pose=pose,
-                    )
-                )
-        return sorted(frames, key=lambda frame: (frame.camera_id, frame.frame_no))
 
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
         scene = self.sequences[index]
@@ -185,10 +234,13 @@ class HypersimPi3XDataset(BaseDataset):
         views = []
         for idx in idxs:
             frame = frames[idx]
-            img = _read_preview_or_hdf5_image(frame.preview_path, frame.color_hdf5_path)
+            preview_path = None if frame.get("preview") is None else self.scenes_root / frame["preview"]
+            color_hdf5_path = None if frame.get("color_hdf5") is None else self.scenes_root / frame["color_hdf5"]
+            depth_path = self.scenes_root / frame["depth"]
+            img = _read_preview_or_hdf5_image(preview_path, color_hdf5_path)
             if img is None:
                 continue
-            ray_distance = _read_hdf5_dataset(frame.depth_path).astype(np.float32)
+            ray_distance = _read_hdf5_dataset(depth_path).astype(np.float32)
             intrinsics = _hypersim_intrinsics(img.shape[1], img.shape[0], self.fov_x_degrees)
             depthmap = _ray_distance_to_planar_depth(ray_distance, intrinsics)
             img, depthmap, intrinsics = self._crop_resize_if_necessary(
@@ -197,20 +249,20 @@ class HypersimPi3XDataset(BaseDataset):
                 intrinsics,
                 resolution,
                 rng=rng,
-                info=str(frame.depth_path),
+                info=str(depth_path),
             )[:3]
-            instance = f"{frame.camera_id}_{frame.frame_no:04d}"
+            instance = f"{frame['camera_id']}_{int(frame['frame_no']):04d}"
             views.append(
                 {
                     "img": img,
                     "depthmap": depthmap.astype(np.float32),
-                    "camera_pose": frame.camera_pose.astype(np.float32),
+                    "camera_pose": np.array(frame["camera_pose"], dtype=np.float32),
                     "camera_intrinsics": intrinsics.astype(np.float32),
                     "dataset": self.dataset_label,
                     "label": scene,
                     "instance": instance,
                     "prefix": f"{scene}_{instance}",
-                    "depth_path": str(frame.depth_path),
+                    "depth_path": str(depth_path),
                     "depth_source": "native_gt_dense",
                     "depth_definition": "planar_z_from_hypersim_ray_distance",
                     "pose_source": "native_gt",

@@ -1,16 +1,32 @@
-import numpy as np
+from pathlib import Path
 
-from unidata_skill.datasets.sage_dataset import SagePi3XDataset
+from unidata_skill.datasets.sage_dataset import SagePi3XDataset, generate_sage_index
 
 
-data_root = "/mnt/nas165/open_source/SAGE-10k-0522"
+data_root = Path("/mnt/nas165/open_source/SAGE-10k-0522")
+index_file = Path("tests/.cache/sage_index.json")
+
+domains = ["blend"]
+layouts = ["layout_21027b7b"]
+settings = ["yaw_amplitude_0522"]
+route_ids = None
+
+generate_sage_index(
+    data_root=data_root,
+    output_path=index_file,
+    domains=domains,
+    layouts=layouts,
+    settings=settings,
+    route_ids=route_ids,
+)
 
 ds = SagePi3XDataset(
     data_root=data_root,
-    domains=["blend"],
-    layouts=["layout_21027b7b"],
-    settings=["yaw_amplitude_0522"],
-    route_ids=None,
+    index_file=index_file,
+    domains=domains,
+    layouts=layouts,
+    settings=settings,
+    route_ids=route_ids,
     frame_num=8,
     resolution=[[512, 384]],
     verbose=True,
@@ -22,14 +38,7 @@ print("first sequences:", ds.sequences[:5])
 if len(ds) == 0:
     raise RuntimeError("No valid routes found.")
 
-rng = np.random.default_rng(0)
-
-views = ds._get_views(
-    index=0,
-    resolution=[512, 384],
-    rng=rng,
-    is_test=True,
-)
+views = ds[0]
 
 print("num views:", len(views))
 
@@ -45,7 +54,7 @@ for i, v in enumerate(views):
     if hasattr(img, "shape"):
         print("img:", type(img), img.shape, img.dtype)
     else:
-        print("img:", type(img), "size:", img.size, "mode:", img.mode)
+        print("img:", type(img), "size:", img.size if hasattr(img, "size") else None)
 
     print(
         "depthmap:",
