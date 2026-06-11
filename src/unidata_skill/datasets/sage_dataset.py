@@ -119,26 +119,33 @@ def generate_sage_index(
     route_filter = set(route_ids or [])
 
     route_dirs = []
-    for domain_dir in sorted(path for path in scenes_root.iterdir() if path.is_dir()):
-        domain = domain_dir.name
-        if domain_filter and domain not in domain_filter:
-            continue
-        for layout_dir in sorted(path for path in domain_dir.iterdir() if path.is_dir()):
-            layout = layout_dir.name
-            if layout_filter and layout not in layout_filter:
+    with tqdm(desc="[SAGE] discovering route dirs", unit="dir") as progress:
+        progress.update(1)
+        for domain_dir in sorted(path for path in scenes_root.iterdir() if path.is_dir()):
+            progress.update(1)
+            domain = domain_dir.name
+            if domain_filter and domain not in domain_filter:
                 continue
-            for setting_dir in sorted(path for path in layout_dir.iterdir() if path.is_dir()):
-                setting = setting_dir.name
-                if setting_filter and setting not in setting_filter:
+            for layout_dir in sorted(path for path in domain_dir.iterdir() if path.is_dir()):
+                progress.update(1)
+                layout = layout_dir.name
+                if layout_filter and layout not in layout_filter:
                     continue
-                for route_dir in sorted(path for path in setting_dir.iterdir() if path.is_dir() and path.name.startswith("route_")):
-                    route = route_dir.name
-                    if route_filter and route not in route_filter:
+                for setting_dir in sorted(path for path in layout_dir.iterdir() if path.is_dir()):
+                    progress.update(1)
+                    setting = setting_dir.name
+                    if setting_filter and setting not in setting_filter:
                         continue
-                    route_dirs.append((domain, layout, setting, route, route_dir))
+                    for route_dir in sorted(path for path in setting_dir.iterdir() if path.is_dir() and path.name.startswith("route_")):
+                        progress.update(1)
+                        route = route_dir.name
+                        if route_filter and route not in route_filter:
+                            continue
+                        route_dirs.append((domain, layout, setting, route, route_dir))
+                        progress.set_postfix(routes=len(route_dirs), refresh=False)
 
     sequences = []
-    for domain, layout, setting, route, route_dir in tqdm(route_dirs, desc="[SAGE] indexing routes", unit="route"):
+    for domain, layout, setting, route, route_dir in tqdm(route_dirs, desc="[SAGE] building index", unit="route"):
         color_dir = route_dir / "vis" / "color"
         depth_dir = route_dir / "vis" / "depth"
         camera_path = route_dir / "camera.yaml"
