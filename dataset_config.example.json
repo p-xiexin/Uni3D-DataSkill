@@ -81,6 +81,7 @@
       "dataset": "sage",
       "root": "/mnt/datasets/SAGE-10k-0522",
       "domains": ["blend"],
+      "layouts": ["layout_14014bd8"],
       "settings": ["yaw_amplitude_0522"],
       "route_ids": ["route_1"]
     },

@@ -144,6 +144,7 @@ class SagePi3XDataset(BaseDataset):
         self,
         data_root: str | Path,
         domains: list[str] | None = None,
+        layouts: list[str] | None = None,
         settings: list[str] | None = None,
         route_ids: list[str] | None = None,
         frame_num: int = 8,
@@ -161,6 +162,7 @@ class SagePi3XDataset(BaseDataset):
         self.optional_roots = _optional_path_roots(optional_roots)
         self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")
         self.domains = set(domains or [])
+        self.layouts = set(layouts or [])
         self.settings = set(settings or [])
         self.route_ids = set(route_ids or [])
         self.stride = stride
@@ -184,6 +186,8 @@ class SagePi3XDataset(BaseDataset):
                 continue
             for layout_dir in sorted(path for path in domain_dir.iterdir() if path.is_dir()):
                 layout = layout_dir.name
+                if self.layouts and layout not in self.layouts:
+                    continue
                 for setting_dir in sorted(path for path in layout_dir.iterdir() if path.is_dir()):
                     setting = setting_dir.name
                     if self.settings and setting not in self.settings:

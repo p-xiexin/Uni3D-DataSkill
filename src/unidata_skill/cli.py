@@ -225,6 +225,8 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
         kwargs["limit_sequences_to"] = int(options["limit_sequences_to"])
     if "domains" in options:
         kwargs["domains"] = options["domains"]
+    if "layouts" in options:
+        kwargs["layouts"] = options["layouts"]
     if "settings" in options:
         kwargs["settings"] = options["settings"]
     if "route_ids" in options:
