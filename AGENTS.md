@@ -13,7 +13,7 @@ raw or converted dataset root
   -> dataset-specific Pi3X dataloader
   -> Pi3 BaseDataset behavior
   -> PyTorch DataLoader
-  -> verbose sample probe
+  -> sequence summary
 ```
 
 The implementation lives mainly in:
@@ -121,7 +121,7 @@ Keep dataset-specific logic local to each dataloader:
 - image/table parsing
 - calibration loading
 - pose loading
-- view sampling inside `_get_views`
+- dataset-specific view sampling inside `_get_views`
 - placeholder fields for unavailable geometry
 
 KITTI-360 is not special. Treat it the same as KITTI odometry, nuScenes, Wayve,
@@ -134,6 +134,8 @@ The public validation entry point is:
 ```powershell
 python -m unidata_skill validate-dataset --config <config.json> --label <label>
 ```
+
+Omit `--label` to probe every dataset entry in the config.
 
 Dataset construction is registered in `DATASET_LOADERS` in
 `src/unidata_skill/cli.py` using direct class references, not module/class

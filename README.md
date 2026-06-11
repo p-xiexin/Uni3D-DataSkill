@@ -13,7 +13,7 @@ Current workflow:
 raw dataset root
   -> Pi3X-compatible Dataset implementation
   -> PyTorch DataLoader
-  -> verbose sample probe
+  -> sequence summary
 ```
 
 Implemented loaders include KITTI-360, KITTI odometry, nuScenes table layouts,
@@ -123,20 +123,18 @@ python -m unidata_skill validate-dataset \
   --label kitti360_train
 ```
 
-The command prints a verbose sample probe:
+Omit `--label` to iterate over every dataset entry in the config.
+
+The command prints sequence-level information:
 
 ```text
+label: kitti360_train
+dataset: kitti360
+root: /mnt/datasets/KITTI-360
 num sequences: 1234
 first sequences: [...]
-num views: 8
-================================================================================
-view: 0
-label: ...
-instance: ...
-image_path: ...
-depthmap: <class 'numpy.ndarray'> ...
-camera_pose: <class 'numpy.ndarray'> ...
-camera_intrinsics: <class 'numpy.ndarray'> ...
+num_imgs:
+  2013_05_28_drive_0000_sync: 11518
 ```
 
 ## Dataset Layouts

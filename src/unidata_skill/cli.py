@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-import numpy as np
-
 from .config import DatasetConfig, load_dataset_configs
 from .datasets.arkit_scenes_dataset import ARKitScenesPi3XDataset
 from .datasets.blendedmvg_dataset import BlendedMVGDataset
@@ -125,7 +123,7 @@ def _loader_spec(dataset: str) -> dict[str, Any]:
     raise ValueError(f"unsupported dataset '{dataset}'")
 
 
-def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple[dict[str, Any], list[int]]:
+def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> dict[str, Any]:
     options = {**spec.get("defaults", {}), **config.options}
     resolution = list(spec["resolution"])
     kwargs: dict[str, Any] = {
@@ -145,59 +143,62 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
         elif key == "fov_x_degrees":
             value = float(value)
         kwargs[key] = value
-    return kwargs, resolution
+    return kwargs
 
 
 def _build_dataset_from_config(config: DatasetConfig):
     spec = _loader_spec(config.dataset)
-    kwargs, resolution = _coerce_dataset_kwargs(spec, config)
-    return spec["class"](**kwargs), resolution
+    kwargs = _coerce_dataset_kwargs(spec, config)
+    return spec["class"](**kwargs)
 
 
-def _print_array_summary(name: str, value: Any) -> None:
-    if not hasattr(value, "shape"):
-        print(f"{name}: {type(value)}")
-        return
-    print(f"{name}: {type(value)} {value.shape} {value.dtype}")
+def _print_sequence_summary(dataset: Any, max_items: int = 20) -> None:
+    sequences = list(getattr(dataset, "sequences", []))
+    print("num sequences:", len(dataset))
+    print("first sequences:", sequences[:max_items])
+
+    num_imgs = getattr(dataset, "num_imgs", None)
+    if isinstance(num_imgs, dict):
+        print("num_imgs:")
+        for sequence in sequences[:max_items]:
+            print(f"  {sequence}: {num_imgs.get(sequence, 0)}")
 
 
-def _print_depth_summary(depthmap: Any) -> None:
-    _print_array_summary("depthmap", depthmap)
-    if hasattr(depthmap, "min") and hasattr(depthmap, "max"):
-        print("depth range:", float(depthmap.min()), float(depthmap.max()))
-
-
-def _print_view(index: int, view: dict[str, Any]) -> None:
-    print("=" * 80)
-    print("view:", index)
-    for key in ("label", "instance", "image_path", "depth_path", "route_dir"):
-        if key in view:
-            print(f"{key}:", view[key])
-    _print_array_summary("img", view.get("img"))
-    _print_depth_summary(view.get("depthmap"))
-    _print_array_summary("camera_pose", view.get("camera_pose"))
-    _print_array_summary("camera_intrinsics", view.get("camera_intrinsics"))
-
-
-def _probe_dataset(config: DatasetConfig, index: int, seed: int) -> int:
-    dataset, resolution = _build_dataset_from_config(config)
+def _probe_dataset(config: DatasetConfig) -> int:
+    dataset = _build_dataset_from_config(config)
     print("label:", config.label)
     print("dataset:", config.dataset)
     print("root:", config.root)
-    print("num sequences:", len(dataset))
-    print("first sequences:", getattr(dataset, "sequences", [])[:5])
+    _print_sequence_summary(dataset)
 
     if len(dataset) == 0:
         raise RuntimeError("No valid sequences found.")
-    if index < 0 or index >= len(dataset):
-        raise IndexError(f"index out of range: {index}, dataset length: {len(dataset)}")
-
-    rng = np.random.default_rng(seed)
-    views = dataset._get_views(index=index, resolution=resolution, rng=rng, is_test=True)
-    print("num views:", len(views))
-    for view_index, view in enumerate(views):
-        _print_view(view_index, view)
     return 0
+
+
+def _select_configs(configs: list[DatasetConfig], label: str | None) -> list[DatasetConfig]:
+    if label is None:
+        return configs
+    selected = next((item for item in configs if item.label == label), None)
+    if selected is None:
+        raise ValueError(f"label not found in config: {label}")
+    return [selected]
+
+
+def _probe_configs(configs: list[DatasetConfig]) -> int:
+    status = 0
+    for index, config in enumerate(configs):
+        if index:
+            print("=" * 80)
+        try:
+            _probe_dataset(config)
+        except Exception as exc:
+            status = 2
+            print("label:", config.label)
+            print("dataset:", config.dataset)
+            print("root:", config.root)
+            print("error:", exc)
+    return status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -206,12 +207,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     dataset_parser = subparsers.add_parser(
         "validate-dataset",
-        help="Load one dataset entry and print a verbose sample probe.",
+        help="Load dataset entries and print sequence-level information.",
     )
     dataset_parser.add_argument("--config", required=True, help="Dataset mapping config JSON.")
-    dataset_parser.add_argument("--label", help="Dataset label to validate. Defaults to the first config entry.")
-    dataset_parser.add_argument("--index", type=int, default=0, help="Dataset item index to probe.")
-    dataset_parser.add_argument("--seed", type=int, default=0, help="Random seed for view selection.")
+    dataset_parser.add_argument("--label", help="Dataset label to validate. Defaults to every config entry.")
     return parser
 
 
@@ -221,10 +220,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "validate-dataset":
         configs = load_dataset_configs(args.config)
-        selected = configs[0] if args.label is None else next((item for item in configs if item.label == args.label), None)
-        if selected is None:
-            parser.error(f"label not found in config: {args.label}")
-        return _probe_dataset(selected, index=args.index, seed=args.seed)
+        try:
+            selected_configs = _select_configs(configs, args.label)
+        except ValueError as exc:
+            parser.error(str(exc))
+        return _probe_configs(selected_configs)
 
     parser.error(f"unknown command: {args.command}")
     return 2

@@ -1,7 +1,6 @@
-from pathlib import Path
 import numpy as np
 
-from src.unidata_skill.datasets.sage_dataset import SagePi3XDataset
+from unidata_skill.datasets.sage_dataset import SagePi3XDataset
 
 
 data_root = "/mnt/nas165/open_source/SAGE-10k-0522"
@@ -11,10 +10,9 @@ ds = SagePi3XDataset(
     domains=["blend"],
     layouts=["layout_21027b7b"],
     settings=["yaw_amplitude_0522"],
-    route_ids=None,   # 先可以不填；如果还慢，就填具体 route
+    route_ids=None,
     frame_num=8,
-    stride=1,
-    resolution=(512, 384),
+    resolution=[[512, 384]],
     verbose=True,
 )
 

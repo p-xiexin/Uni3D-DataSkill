@@ -12,7 +12,7 @@ English documentation: [README.md](README.md)
 raw dataset root
   -> Pi3X-compatible Dataset implementation
   -> PyTorch DataLoader
-  -> verbose sample probe
+  -> sequence summary
 ```
 
 已实现的 loader 包括 KITTI-360、KITTI odometry、nuScenes table layout、
@@ -117,20 +117,18 @@ python -m unidata_skill validate-dataset \
   --label kitti360_train
 ```
 
-命令会输出 verbose sample probe：
+不传 `--label` 时会遍历配置文件中的所有 dataset 条目。
+
+命令会输出数据集序列级信息：
 
 ```text
+label: kitti360_train
+dataset: kitti360
+root: /mnt/datasets/KITTI-360
 num sequences: 1234
 first sequences: [...]
-num views: 8
-================================================================================
-view: 0
-label: ...
-instance: ...
-image_path: ...
-depthmap: <class 'numpy.ndarray'> ...
-camera_pose: <class 'numpy.ndarray'> ...
-camera_intrinsics: <class 'numpy.ndarray'> ...
+num_imgs:
+  2013_05_28_drive_0000_sync: 11518
 ```
 
 ## 数据集目录结构
