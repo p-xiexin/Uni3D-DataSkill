@@ -80,6 +80,7 @@
       "label": "sage_sample",
       "dataset": "sage",
       "root": "/mnt/datasets/SAGE-10k-0522",
+      "index_file": "/mnt/datasets/SAGE-10k-0522/sage_index.json",
       "domains": ["blend"],
       "layouts": ["layout_14014bd8"],
       "settings": ["yaw_amplitude_0522"],

@@ -10,7 +10,7 @@ from .datasets.hypersim_dataset import HypersimPi3XDataset
 from .datasets.kitti360_dataset import Kitti360Pi3XDataset
 from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset
 from .datasets.nuscenes_dataset import NuScenesPi3XDataset
-from .datasets.sage_dataset import SagePi3XDataset
+from .datasets.sage_dataset import SagePi3XDataset, generate_sage_index
 from .datasets.uco3d_dataset import UCO3DPi3XDataset
 from .datasets.waymo_kitti_dataset import WaymoKittiPi3XDataset
 from .datasets.wayve_dataset import WayveScenesPi3XDataset
@@ -62,6 +62,7 @@ DATASET_LOADERS = {
     "sage": {
         "aliases": {"sage", "sage-10k", "sage10k"},
         "class": SagePi3XDataset,
+        "index_builder": generate_sage_index,
         "defaults": {},
         "frame_num": 8,
         "resolution": [512, 384],
@@ -113,6 +114,16 @@ DATASET_OPTION_KEYS = (
     "layouts",
     "settings",
     "route_ids",
+    "index_file",
+)
+
+
+INDEX_OPTION_KEYS = (
+    "roots",
+    "domains",
+    "layouts",
+    "settings",
+    "route_ids",
 )
 
 
@@ -152,6 +163,14 @@ def _build_dataset_from_config(config: DatasetConfig):
     return spec["class"](**kwargs)
 
 
+def _coerce_index_kwargs(config: DatasetConfig) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"data_root": config.root}
+    for key in INDEX_OPTION_KEYS:
+        if key in config.options:
+            kwargs[key] = config.options[key]
+    return kwargs
+
+
 def _print_sequence_summary(dataset: Any, max_items: int = 20) -> None:
     sequences = list(getattr(dataset, "sequences", []))
     print("num sequences:", len(dataset))
@@ -164,15 +183,47 @@ def _print_sequence_summary(dataset: Any, max_items: int = 20) -> None:
             print(f"  {sequence}: {num_imgs.get(sequence, 0)}")
 
 
-def _probe_dataset(config: DatasetConfig) -> int:
-    dataset = _build_dataset_from_config(config)
+def _print_dataset_header(config: DatasetConfig) -> None:
     print("label:", config.label)
     print("dataset:", config.dataset)
     print("root:", config.root)
+
+
+def _sample_dataset(config: DatasetConfig) -> int:
+    dataset = _build_dataset_from_config(config)
+    _print_dataset_header(config)
     _print_sequence_summary(dataset)
 
     if len(dataset) == 0:
         raise RuntimeError("No valid sequences found.")
+
+    views = dataset[0]
+    print("sample index:", 0)
+    print("sample views:", len(views))
+    if views:
+        first_view = views[0]
+        print("first label:", first_view.get("label"))
+        print("first instance:", first_view.get("instance"))
+        print("first image_path:", first_view.get("image_path"))
+        print("first depth_path:", first_view.get("depth_path"))
+    return 0
+
+
+def _reindex_dataset(config: DatasetConfig) -> int:
+    spec = _loader_spec(config.dataset)
+    index_file = config.options.get("index_file")
+    if not index_file:
+        _print_dataset_header(config)
+        print("skip: no index_file")
+        return 0
+    index_builder = spec.get("index_builder")
+    if index_builder is None:
+        raise RuntimeError(f"dataset '{config.dataset}' does not define an index builder")
+
+    index = index_builder(output_path=index_file, **_coerce_index_kwargs(config))
+    _print_dataset_header(config)
+    print("index_file:", index_file)
+    print("num indexed sequences:", len(index.get("sequences", [])))
     return 0
 
 
@@ -185,13 +236,13 @@ def _select_configs(configs: list[DatasetConfig], label: str | None) -> list[Dat
     return [selected]
 
 
-def _probe_configs(configs: list[DatasetConfig]) -> int:
+def _run_configs(configs: list[DatasetConfig], action) -> int:
     status = 0
     for index, config in enumerate(configs):
         if index:
             print("=" * 80)
         try:
-            _probe_dataset(config)
+            action(config)
         except Exception as exc:
             status = 2
             print("label:", config.label)
@@ -205,12 +256,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="unidata-skill")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    dataset_parser = subparsers.add_parser(
-        "validate-dataset",
-        help="Load dataset entries and print sequence-level information.",
+    reindex_parser = subparsers.add_parser(
+        "reindex-dataset",
+        help="Rebuild dataset index files from configured raw dataset roots.",
     )
-    dataset_parser.add_argument("--config", required=True, help="Dataset mapping config JSON.")
-    dataset_parser.add_argument("--label", help="Dataset label to validate. Defaults to every config entry.")
+    reindex_parser.add_argument("--config", required=True, help="Dataset mapping config JSON.")
+    reindex_parser.add_argument("--label", help="Dataset label to reindex. Defaults to every config entry.")
+
+    sample_parser = subparsers.add_parser(
+        "sample-dataset",
+        help="Load dataset entries and run one sampling probe.",
+    )
+    sample_parser.add_argument("--config", required=True, help="Dataset mapping config JSON.")
+    sample_parser.add_argument("--label", help="Dataset label to sample. Defaults to every config entry.")
     return parser
 
 
@@ -218,13 +276,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "validate-dataset":
+    if args.command in {"reindex-dataset", "sample-dataset"}:
         configs = load_dataset_configs(args.config)
         try:
             selected_configs = _select_configs(configs, args.label)
         except ValueError as exc:
             parser.error(str(exc))
-        return _probe_configs(selected_configs)
+        if args.command == "reindex-dataset":
+            return _run_configs(selected_configs, _reindex_dataset)
+        return _run_configs(selected_configs, _sample_dataset)
 
     parser.error(f"unknown command: {args.command}")
     return 2

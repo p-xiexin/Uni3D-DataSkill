@@ -118,14 +118,26 @@ Supported dataset keys:
 Validate a dataset entry from a config file:
 
 ```bash
-python -m unidata_skill validate-dataset \
+python -m unidata_skill sample-dataset \
   --config dataset_config.local.json \
   --label kitti360_train
 ```
 
 Omit `--label` to iterate over every dataset entry in the config.
 
-The command prints sequence-level information:
+For datasets that use a generated JSON index, rebuild the index first:
+
+```bash
+python -m unidata_skill reindex-dataset \
+  --config dataset_config.local.json \
+  --label sage_sample
+```
+
+`reindex-dataset` writes to `index_file`; `sample-dataset` reads from the same
+field.
+
+The sampling command prints sequence-level information and one sampled batch
+summary:
 
 ```text
 label: kitti360_train
@@ -135,6 +147,8 @@ num sequences: 1234
 first sequences: [...]
 num_imgs:
   2013_05_28_drive_0000_sync: 11518
+sample index: 0
+sample views: 8
 ```
 
 ## Dataset Layouts

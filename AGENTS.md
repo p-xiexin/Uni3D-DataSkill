@@ -127,15 +127,50 @@ Keep dataset-specific logic local to each dataloader:
 KITTI-360 is not special. Treat it the same as KITTI odometry, nuScenes, Wayve,
 Waymo KITTI-style, BlendedMVG, and future direct loaders.
 
+## Pi3 Dataset Style Reference
+
+When adding or adapting loaders, follow the style used by Pi3 examples such as
+`thirdparty/Pi3/datasets/tartanair_dataset.py`,
+`thirdparty/Pi3/datasets/scannet_dataset.py`, and
+`thirdparty/Pi3/datasets/co3dv2_dataset.py`.
+
+These loaders assume `data_root` already points at a readable official or
+preprocessed dataset layout. They do not download raw data, unpack archives,
+copy files into a working tree, or normalize every dataset into a shared
+directory schema at runtime.
+
+Use fixed, dataset-native directory expectations inside each concrete loader:
+
+- TartanAir-style loaders can directly scan scene folders and read files such
+  as `image_left`, `depth_left`, and `pose_left.txt`.
+- ScanNet-style loaders can directly expect per-scene folders such as `color`,
+  `depth`, `pose`, and `intrinsic`.
+- CO3Dv2-style loaders can directly read official annotation files such as
+  `*_train.jgz` and `*_test.jgz`, then resolve referenced `images`, `depths`,
+  and optional `masks`.
+
+If a loader writes under `data/dataset_cache`, treat that cache as lightweight
+index metadata only, such as sequence lists or image counts. Do not use it as a
+place to store extracted raw datasets, converted images, generated geometry, or
+alternate dataset layouts.
+
 ## CLI Pattern
 
-The public validation entry point is:
+The public CLI has two separate responsibilities:
 
 ```powershell
-python -m unidata_skill validate-dataset --config <config.json> --label <label>
+python -m unidata_skill reindex-dataset --config <config.json> --label <label>
+python -m unidata_skill sample-dataset --config <config.json> --label <label>
 ```
 
-Omit `--label` to probe every dataset entry in the config.
+Omit `--label` to process every dataset entry in the config.
+
+`reindex-dataset` rebuilds lightweight JSON indexes from raw dataset roots. It
+uses `index_file` as the output path.
+
+`sample-dataset` constructs the dataloader and runs one sampling probe. It uses
+the same `index_file` as the read path for datasets that support precomputed
+indexes.
 
 Dataset construction is registered in `DATASET_LOADERS` in
 `src/unidata_skill/cli.py` using direct class references, not module/class
@@ -184,9 +219,9 @@ read. If an official dataset is laid out directly under `root`, component
 `roots` can be omitted. If components are stored separately, set `roots` for
 required inputs and `optional_roots` for modalities that may be unavailable.
 
-## Validation Expectations
+## Sampling Expectations
 
-Keep `validate-dataset` focused on dataloader probing:
+Keep `sample-dataset` focused on dataloader probing:
 
 - referenced image paths exist
 - returned views have required Pi3X fields

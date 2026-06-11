@@ -112,14 +112,24 @@ cp dataset_config.example.json dataset_config.local.json
 验证配置文件中的一个数据集条目：
 
 ```bash
-python -m unidata_skill validate-dataset \
+python -m unidata_skill sample-dataset \
   --config dataset_config.local.json \
   --label kitti360_train
 ```
 
 不传 `--label` 时会遍历配置文件中的所有 dataset 条目。
 
-命令会输出数据集序列级信息：
+对于使用 JSON 索引的数据集，先重建索引：
+
+```bash
+python -m unidata_skill reindex-dataset \
+  --config dataset_config.local.json \
+  --label sage_sample
+```
+
+`reindex-dataset` 写入 `index_file`，`sample-dataset` 读取同一个字段。
+
+采样命令会输出数据集序列级信息和一次采样摘要：
 
 ```text
 label: kitti360_train
@@ -129,6 +139,8 @@ num sequences: 1234
 first sequences: [...]
 num_imgs:
   2013_05_28_drive_0000_sync: 11518
+sample index: 0
+sample views: 8
 ```
 
 ## 数据集目录结构
