@@ -101,12 +101,15 @@ Supported dataset keys:
 
 | Dataset key | Loader |
 | --- | --- |
+| `arkitscenes`, `arkit-scenes`, `arkit` | ARKitScenes 3DOD RGB-D layout |
+| `blendedmvs`, `blendedmvg` | BlendedMVG layout |
+| `hypersim`, `hyper-sim` | Hypersim scene/camera HDF5 layout |
 | `kitti360`, `kitti-360` | KITTI-360 raw perspective layout |
 | `kitti`, `kitti-odometry` | KITTI odometry-style layout |
 | `nuscenes` | nuScenes JSON table layout |
+| `uco3d`, `uco3d-depth` | uCO3D official package wrapper |
 | `wayve`, `wayvescenes`, `wayvescenes101` | WayveScenes/Nerfstudio-style transforms |
 | `waymo-kitti`, `waymo_kitti`, `waymo-converted-kitti` | Waymo converted to KITTI-style layout |
-| `blendedmvs`, `blendedmvg` | BlendedMVG layout |
 
 ## Usage
 

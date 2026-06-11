@@ -15,10 +15,13 @@ if "datasets" not in sys.modules:
 from .pi3x_validator import ValidationResult, validate_pi3x_dataset, validate_pi3x_view
 
 __all__ = [
+    "ARKitScenesPi3XDataset",
     "BlendedMVGDataset",
+    "HypersimPi3XDataset",
     "Kitti360Pi3XDataset",
     "KittiOdometryPi3XDataset",
     "NuScenesPi3XDataset",
+    "UCO3DPi3XDataset",
     "ValidationResult",
     "WaymoKittiPi3XDataset",
     "WayveScenesPi3XDataset",
@@ -28,10 +31,18 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    if name == "ARKitScenesPi3XDataset":
+        from .arkit_scenes_dataset import ARKitScenesPi3XDataset
+
+        return ARKitScenesPi3XDataset
     if name == "BlendedMVGDataset":
         from .blendedmvg_dataset import BlendedMVGDataset
 
         return BlendedMVGDataset
+    if name == "HypersimPi3XDataset":
+        from .hypersim_dataset import HypersimPi3XDataset
+
+        return HypersimPi3XDataset
     if name == "Kitti360Pi3XDataset":
         from .kitti360_dataset import Kitti360Pi3XDataset
 
@@ -44,6 +55,10 @@ def __getattr__(name: str):
         from .nuscenes_dataset import NuScenesPi3XDataset
 
         return NuScenesPi3XDataset
+    if name == "UCO3DPi3XDataset":
+        from .uco3d_dataset import UCO3DPi3XDataset
+
+        return UCO3DPi3XDataset
     if name == "WaymoKittiPi3XDataset":
         from .waymo_kitti_dataset import WaymoKittiPi3XDataset
 

@@ -1145,6 +1145,8 @@ Reader notes: `metadata.sqlite` is the authoritative index. Resolve video frames
 
 目标转换：读取 sqlite 作为主索引；视频解码成 RGB/mask frame；HDF5 读取 depth；pose 转 `T_c2w`；point cloud 与 GS 复制；LVIS/category/caption 写 annotations。适合 object-level multiview/3DGS 训练。
 
+训练分组：uCO3D 按 Group F 处理，`depth_maps.h5` 标记为 `depth_source=mono_pseudo`、`pseudo_label=true`。
+
 风险点：sqlite schema 需固定版本解析；视频帧、depth_maps.h5 与 metadata frame index 必须严格对齐。数据量大，建议流式转换。
 
 建议：构建前馈数据集：是。优先级：高。
@@ -1912,12 +1914,12 @@ Pi3X 类前馈几何训练不能把缺失字段伪装成真值。特别是 depth
 
 | 组别 | 已有数据源 | 示例 | 补全方案 | 训练准入 |
 | --- | --- | --- | --- | --- |
-| A | RGB + intrinsics + pose + dense depth | BlendedMVS；ScanNet/ARKitScenes/Hypersim 的 RGB-D 子集；uCO3D depth 子集 | 直接读取 depth，统一单位和 depth definition，生成 `valid_mask`，过滤 invalid frame | 可作为 GT depth 训练 |
+| A | RGB + intrinsics + pose + dense depth | BlendedMVS；ScanNet/ARKitScenes/Hypersim 的 RGB-D 子集；CO3D v2 depth 子集 | 直接读取 depth，统一单位和 depth definition，生成 `valid_mask`，过滤 invalid frame | 可作为 GT depth 训练 |
 | B | RGB + intrinsics + pose + LiDAR/SICK/radar/point cloud，但无 dense image depth | KITTI；KITTI-360；nuScenes；Waymo Perception | 按官方 calibration 和 pose chain 将点云投影到目标相机，生成 sparse depth | 仅用于支持 sparse depth supervision 的训练；dense GT depth 训练必须拒绝或先离线补全 |
 | C | RGB + pose/calibration + mesh 或 semantic mesh，但无传感器 depth | Replica；HM3D；Matterport3D mesh release；ScanNet++ mesh/DSLR 组合 | 用 mesh renderer 从已有或采样相机位姿渲染 z-depth、normal、semantic/instance | 可作为 rendered geometry supervision；不能标记为真实传感器 depth |
 | D | mesh/USD/GLB/URDF/3DGS/scene config，无现成 RGB-D 帧和相机轨迹 | 3D-FRONT；ReplicaCAD；InteriorAgent；InteriorGS；Tabletop；Objaverse-XL；Articraft-10K；SAGE-10k；Maya-like assets | 定义 `render_policy`，采样相机轨迹，渲染 RGB/depth/normal/mask/pose | 作为合成/渲染训练数据；不得混同真实采集数据 |
 | E | RGB/video，可估计 intrinsics/pose，但无官方几何真值 | BDD100K；OpenVid-1M；部分 MVImgNet/MegaDepth 镜像；用户自有视频 | 抽帧后运行 COLMAP/VGGSfM/DROID-SLAM/MASt3R-SLAM/VGGT-Long 估计 pose，再用 MVS 或 metric depth model 生成 pseudo depth | 只用于弱监督、预训练或 teacher-student；不能作为 GT 指标 |
-| F | COLMAP/Nerfstudio/SfM sparse model，但 dense depth 缺失或不稳定 | DL3DV-10K；WayveScenes101 COLMAP output；CO3D/MVImgNet 的部分处理包 | 读取 camera/pose/sparse point cloud；可用 MVS densification 或 depth model 生成 pseudo dense depth | pose 可按来源使用；depth 必须按 sparse/pseudo 区分训练权重 |
+| F | COLMAP/Nerfstudio/SfM sparse model，但 dense depth 缺失或不稳定 | DL3DV-10K；WayveScenes101 COLMAP output；uCO3D；CO3D/MVImgNet 的部分处理包 | 读取 camera/pose/sparse point cloud；可用 MVS densification 或 depth model 生成 pseudo dense depth | pose 可按来源使用；depth 必须按 sparse/pseudo 区分训练权重 |
 | G | 只有 2D 语义/地图/遥感标注，不属于透视多视图几何 | OpenSatMap；SEED-MAP；3D-GloBFP；BDD100K 的纯 2D task 用法 | 不补造 Pi3X 几何训练字段；只转换为对应 2D/地图任务或外观/语义辅助数据 | 不进入需要 depth/pose 的 Pi3X 几何训练 |
 
 关键来源标记：

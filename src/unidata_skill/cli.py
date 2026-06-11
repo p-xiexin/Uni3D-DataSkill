@@ -5,16 +5,32 @@ import json
 from typing import Any
 
 from .config import DatasetConfig, load_dataset_configs
+from .datasets.arkit_scenes_dataset import ARKitScenesPi3XDataset
 from .datasets.blendedmvg_dataset import BlendedMVGDataset
+from .datasets.hypersim_dataset import HypersimPi3XDataset
 from .datasets.kitti360_dataset import Kitti360Pi3XDataset
 from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset
 from .datasets.nuscenes_dataset import NuScenesPi3XDataset
 from .datasets.pi3x_validator import validate_pi3x_dataset
+from .datasets.uco3d_dataset import UCO3DPi3XDataset
 from .datasets.waymo_kitti_dataset import WaymoKittiPi3XDataset
 from .datasets.wayve_dataset import WayveScenesPi3XDataset
 
 
 DATASET_LOADERS = {
+    "arkitscenes": {
+        "aliases": {"arkitscenes", "arkit-scenes", "arkit"},
+        "class": ARKitScenesPi3XDataset,
+        "root_arg": "data_root",
+        "constructor_defaults": {},
+        "validation": {
+            "frame_num": 8,
+            "stride": 1,
+            "resolution": "512x384",
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+    },
     "kitti360": {
         "aliases": {"kitti360", "kitti-360"},
         "class": Kitti360Pi3XDataset,
@@ -62,6 +78,20 @@ DATASET_LOADERS = {
         },
         "warning": "KITTI dense depth is not read in this direct loader; depthmap is a placeholder unless a derived depth path is attached later",
     },
+    "hypersim": {
+        "aliases": {"hypersim", "hyper-sim"},
+        "class": HypersimPi3XDataset,
+        "root_arg": "data_root",
+        "constructor_defaults": {},
+        "validation": {
+            "frame_num": 8,
+            "stride": 1,
+            "resolution": "512x384",
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+        "warning": "Hypersim depth_meters is ray distance; this loader converts it to planar z-depth using configured intrinsics assumptions",
+    },
     "nuscenes": {
         "aliases": {"nuscenes", "nuScenes"},
         "class": NuScenesPi3XDataset,
@@ -91,6 +121,20 @@ DATASET_LOADERS = {
             "batch_size": 1,
         },
         "warning": "WayveScenes101 does not provide GT dense depth; depthmap is a placeholder",
+    },
+    "uco3d": {
+        "aliases": {"uco3d", "uco3d-depth"},
+        "class": UCO3DPi3XDataset,
+        "root_arg": "data_root",
+        "constructor_defaults": {},
+        "validation": {
+            "frame_num": 8,
+            "stride": 1,
+            "resolution": "512x512",
+            "max_samples": 4,
+            "batch_size": 1,
+        },
+        "warning": "uCO3D depth maps are aligned monocular pseudo depth, not GT dense depth",
     },
     "waymo-kitti": {
         "aliases": {"waymo-kitti", "waymo_kitti", "waymo-converted-kitti"},
@@ -147,6 +191,24 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> tuple
         kwargs["scene_dirs"] = options["scene_dirs"]
     if "transforms_name" in options:
         kwargs["transforms_name"] = options["transforms_name"]
+    if "scan_ids" in options:
+        kwargs["scan_ids"] = options["scan_ids"]
+    if "splits" in options:
+        kwargs["splits"] = tuple(options["splits"])
+    if "camera_ids" in options:
+        kwargs["camera_ids"] = options["camera_ids"]
+    if "fov_x_degrees" in options:
+        kwargs["fov_x_degrees"] = float(options["fov_x_degrees"])
+    if "subsets" in options:
+        kwargs["subsets"] = options["subsets"]
+    if "subset_lists_name" in options:
+        kwargs["subset_lists_name"] = options["subset_lists_name"]
+    if "set_lists_file" in options:
+        kwargs["set_lists_file"] = options["set_lists_file"]
+    if "pick_sequences" in options:
+        kwargs["pick_sequences"] = options["pick_sequences"]
+    if "limit_sequences_to" in options:
+        kwargs["limit_sequences_to"] = int(options["limit_sequences_to"])
 
     frame_num = int(validation.get("frame_num", 8))
     max_samples = int(validation.get("max_samples", 4))
