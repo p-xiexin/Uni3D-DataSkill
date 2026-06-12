@@ -153,7 +153,8 @@ def generate_nuscenes_index(
     if output_path is not None:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+        with output_path.open("wb") as handle:
+            np.save(handle, index, allow_pickle=True)
     return index
 
 
@@ -187,7 +188,7 @@ class NuScenesPi3XDataset(BaseDataset):
             index = generate_nuscenes_index(self.data_root, version=version, cameras=cameras, roots=roots)
         else:
             index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
-            index = json.loads(index_file_path.read_text(encoding="utf-8"))
+            index = np.load(index_file_path, allow_pickle=True).item()
 
         self.sequences = []
         self.frames = {}

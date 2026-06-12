@@ -4,7 +4,7 @@
       "label": "arkitscenes_train",
       "dataset": "arkitscenes",
       "root": "/mnt/datasets/ARKitScenes",
-      "index_file": "/mnt/datasets/ARKitScenes/arkitscenes_index.json",
+      "index_file": "/mnt/datasets/ARKitScenes/arkitscenes_index.npy",
       "roots": {
         "scans": "/mnt/datasets/ARKitScenes"
       },
@@ -30,7 +30,7 @@
       "label": "hypersim_train",
       "dataset": "hypersim",
       "root": "/mnt/datasets/Hypersim",
-      "index_file": "/mnt/datasets/Hypersim/hypersim_index.json",
+      "index_file": "/mnt/datasets/Hypersim/hypersim_index.npy",
       "roots": {
         "scenes": "/mnt/datasets/Hypersim"
       },
@@ -42,7 +42,7 @@
       "label": "kitti360_train",
       "dataset": "kitti360",
       "root": "/mnt/datasets/KITTI-360",
-      "index_file": "/mnt/datasets/KITTI-360/kitti360_index.json",
+      "index_file": "/mnt/datasets/KITTI-360/kitti360_index.npy",
       "roots": {
         "calibration": "/mnt/datasets/KITTI-360/calibration",
         "images": "/mnt/datasets/KITTI-360/data_2d_raw",
@@ -60,7 +60,7 @@
       "label": "kitti_odometry_train",
       "dataset": "kitti",
       "root": "/mnt/datasets/KITTI-odometry",
-      "index_file": "/mnt/datasets/KITTI-odometry/kitti_odometry_index.json",
+      "index_file": "/mnt/datasets/KITTI-odometry/kitti_odometry_index.npy",
       "roots": {
         "sequences": "/mnt/datasets/KITTI-odometry/sequences",
         "poses": "/mnt/datasets/KITTI-odometry/poses"
@@ -72,7 +72,7 @@
       "label": "nuscenes_mini",
       "dataset": "nuscenes",
       "root": "/mnt/datasets/nuScenes",
-      "index_file": "/mnt/datasets/nuScenes/nuscenes_mini_index.json",
+      "index_file": "/mnt/datasets/nuScenes/nuscenes_mini_index.npy",
       "roots": {
         "tables": "/mnt/datasets/nuScenes/v1.0-mini",
         "data": "/mnt/datasets/nuScenes",
@@ -85,7 +85,7 @@
       "label": "sage_sample",
       "dataset": "sage",
       "root": "/mnt/datasets/SAGE-10k-0522",
-      "index_file": "/mnt/datasets/SAGE-10k-0522/sage_index.json",
+      "index_file": "/mnt/datasets/SAGE-10k-0522/sage_index.npy",
       "domains": ["blend"],
       "layouts": ["layout_14014bd8"],
       "settings": ["yaw_amplitude_0522"],
@@ -106,7 +106,7 @@
       "label": "wayve_train",
       "dataset": "wayve",
       "root": "/mnt/datasets/WayveScenes101",
-      "index_file": "/mnt/datasets/WayveScenes101/wayve_index.json",
+      "index_file": "/mnt/datasets/WayveScenes101/wayve_index.npy",
       "roots": {
         "scenes": "/mnt/datasets/WayveScenes101"
       },
@@ -117,7 +117,7 @@
       "label": "waymo_kitti_train",
       "dataset": "waymo-kitti",
       "root": "/mnt/datasets/Waymo-KITTI",
-      "index_file": "/mnt/datasets/Waymo-KITTI/waymo_kitti_index.json",
+      "index_file": "/mnt/datasets/Waymo-KITTI/waymo_kitti_index.npy",
       "roots": {
         "sequences": "/mnt/datasets/Waymo-KITTI/sequences",
         "poses": "/mnt/datasets/Waymo-KITTI/poses"

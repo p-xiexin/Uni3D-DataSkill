@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from typing import Any, Iterable
@@ -171,7 +170,8 @@ def generate_waymo_kitti_index(
     if output_path is not None:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+        with output_path.open("wb") as handle:
+            np.save(handle, index, allow_pickle=True)
     return index
 
 
@@ -201,7 +201,7 @@ class WaymoKittiPi3XDataset(BaseDataset):
             index = generate_waymo_kitti_index(self.data_root, sequences=sequences, cameras=cameras, roots=roots)
         else:
             index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
-            index = json.loads(index_file_path.read_text(encoding="utf-8"))
+            index = np.load(index_file_path, allow_pickle=True).item()
 
         selected = set(sequences or [])
         self.sequences = []

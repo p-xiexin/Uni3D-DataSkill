@@ -4,7 +4,7 @@ from unidata_skill.datasets.sage_dataset import SagePi3XDataset, generate_sage_i
 
 
 data_root = Path("/mnt/nas165/open_source/SAGE-10k-0522")
-index_file = Path("tests/.cache/sage_index.json")
+index_file = Path("tests/.cache/sage_index.npy")
 
 domains = ["blend"]
 layouts = ["layout_21027b7b"]

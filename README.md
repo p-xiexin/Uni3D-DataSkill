@@ -125,7 +125,7 @@ python -m unidata_skill sample-dataset \
 
 Omit `--label` to iterate over every dataset entry in the config.
 
-For datasets that use a generated JSON index, rebuild the index first:
+For datasets that use a generated NumPy index, rebuild the index first:
 
 ```bash
 python -m unidata_skill reindex-dataset \

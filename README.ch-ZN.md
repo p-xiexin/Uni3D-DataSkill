@@ -119,7 +119,7 @@ python -m unidata_skill sample-dataset \
 
 不传 `--label` 时会遍历配置文件中的所有 dataset 条目。
 
-对于使用 JSON 索引的数据集，先重建索引：
+对于使用 NumPy 索引的数据集，先重建索引：
 
 ```bash
 python -m unidata_skill reindex-dataset \

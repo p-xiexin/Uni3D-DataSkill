@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any
 
 from .config import DatasetConfig, load_dataset_configs
@@ -170,6 +171,8 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> dict[
             value = int(value)
         elif key == "fov_x_degrees":
             value = float(value)
+        elif key == "index_file" and Path(value).suffix != ".npy":
+            raise ValueError(f"index_file must end with .npy: {value}")
         kwargs[key] = value
     return kwargs
 
@@ -233,6 +236,8 @@ def _reindex_dataset(config: DatasetConfig) -> int:
         _print_dataset_header(config)
         print("skip: no index_file")
         return 0
+    if Path(index_file).suffix != ".npy":
+        raise ValueError(f"index_file must end with .npy: {index_file}")
     index_builder = spec.get("index_builder")
     if index_builder is None:
         raise RuntimeError(f"dataset '{config.dataset}' does not define an index builder")
