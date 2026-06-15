@@ -8,7 +8,7 @@
       "roots": {
         "scenes": "/mnt/datasets/AriaSyntheticEnvironments"
       },
-      "scene_dirs": ["0"],
+      "chunks": ["train_chunk_0000803"],
       "fov_x_degrees": 90.0
     },
     {

@@ -64,17 +64,30 @@ def _frame_number_from_stem(path: Path) -> int:
     return int(digits)
 
 
-def _discover_scene_dirs(scenes_root: Path, scene_dirs: list[str] | None) -> list[Path]:
-    if scene_dirs:
-        return [scenes_root / scene for scene in scene_dirs]
-    return sorted(
-        path
-        for path in scenes_root.iterdir()
-        if path.is_dir()
-        and (path / "rgb").is_dir()
-        and (path / "depth").is_dir()
-        and (path / "trajectory.txt").is_file()
-    )
+def _discover_scene_dirs(scenes_root: Path, chunks: list[str] | None) -> list[Path]:
+    roots = [scenes_root / chunk for chunk in chunks] if chunks else sorted(path for path in scenes_root.iterdir() if path.is_dir())
+    scene_paths = []
+    for path in roots:
+        if _is_ase_scene_dir(path):
+            scene_paths.append(path)
+            continue
+        if path.is_dir():
+            scene_paths.extend(sorted(child for child in path.iterdir() if _is_ase_scene_dir(child)))
+            continue
+        raise FileNotFoundError(f"ASE chunk or scene directory not found: {path}")
+    return scene_paths
+
+
+def _trajectory_path(scene_dir: Path) -> Path | None:
+    for name in ("trajectory.csv", "trajectory.txt"):
+        path = scene_dir / name
+        if path.is_file():
+            return path
+    return None
+
+
+def _is_ase_scene_dir(path: Path) -> bool:
+    return path.is_dir() and (path / "rgb").is_dir() and (path / "depth").is_dir() and _trajectory_path(path) is not None
 
 
 def _quaternion_xyzw_to_rotation(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
@@ -204,7 +217,7 @@ def _ray_distance_to_planar_depth(distance: np.ndarray, intrinsics: np.ndarray) 
 def generate_ase_index(
     data_root: str | Path,
     output_path: str | Path | None = None,
-    scene_dirs: list[str] | None = None,
+    chunks: list[str] | None = None,
     roots: dict[str, str | Path] | None = None,
     fov_x_degrees: float = 90.0,
 ) -> dict[str, Any]:
@@ -213,12 +226,12 @@ def generate_ase_index(
     scenes_root = _require_dir(_path_roots(roots).get("scenes", data_root), "roots.scenes")
 
     records = []
-    for scene_dir in tqdm(_discover_scene_dirs(scenes_root, scene_dirs), desc="[ASE] building index", unit="scene"):
-        scene = scene_dir.name
+    for scene_dir in tqdm(_discover_scene_dirs(scenes_root, chunks), desc="[ASE] building index", unit="scene"):
+        scene = _relative(scene_dir, scenes_root)
         rgb_dir = _require_dir(scene_dir / "rgb", f"{scene}.rgb")
         depth_dir = _require_dir(scene_dir / "depth", f"{scene}.depth")
-        trajectory_path = scene_dir / "trajectory.txt"
-        if not trajectory_path.is_file():
+        trajectory_path = _trajectory_path(scene_dir)
+        if trajectory_path is None:
             raise FileNotFoundError(f"ASE trajectory not found: {trajectory_path}")
 
         instance_dir = scene_dir / "instances"
@@ -281,7 +294,7 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
         data_root: str | Path,
         verbose: bool = False,
         index_file: str | Path | None = None,
-        scene_dirs: list[str] | None = None,
+        chunks: list[str] | None = None,
         roots: dict[str, str | Path] | None = None,
         optional_roots: dict[str, str | Path | None] | None = None,
         **kwargs: Any,
@@ -297,17 +310,18 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
         self.trajectory_cache: dict[str, list[np.ndarray]] = {}
 
         if index_file is None:
-            index = generate_ase_index(self.data_root, scene_dirs=scene_dirs, roots=roots, fov_x_degrees=self.fov_x_degrees)
+            index = generate_ase_index(self.data_root, chunks=chunks, roots=roots, fov_x_degrees=self.fov_x_degrees)
         else:
             index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
             index = np.load(index_file_path, allow_pickle=True).item()
 
-        selected = set(scene_dirs or [])
+        selected_chunks = set(chunks or [])
         self.records = []
         self.frames = {}
         for record in index.get("sequences", []):
             scene = record["sequence_id"]
-            if selected and scene not in selected:
+            chunk = Path(scene).parts[0]
+            if selected_chunks and chunk not in selected_chunks:
                 continue
             self.records.append(record)
             self.frames[scene] = record.get("frames", [])

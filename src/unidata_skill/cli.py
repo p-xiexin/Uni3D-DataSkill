@@ -131,6 +131,7 @@ DATASET_OPTION_KEYS = (
     "layouts",
     "settings",
     "route_ids",
+    "chunks",
     "index_file",
 )
 
@@ -151,6 +152,7 @@ INDEX_OPTION_KEYS = (
     "layouts",
     "settings",
     "route_ids",
+    "chunks",
 )
 
 
