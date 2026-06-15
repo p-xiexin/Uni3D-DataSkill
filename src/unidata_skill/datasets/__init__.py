@@ -16,6 +16,7 @@ from .pi3x_validator import ValidationResult, validate_pi3x_dataset, validate_pi
 
 __all__ = [
     "ARKitScenesPi3XDataset",
+    "AriaSyntheticEnvironmentsPi3XDataset",
     "BlendedMVGDataset",
     "HypersimPi3XDataset",
     "Kitti360Pi3XDataset",
@@ -36,6 +37,10 @@ def __getattr__(name: str):
         from .arkit_scenes_dataset import ARKitScenesPi3XDataset
 
         return ARKitScenesPi3XDataset
+    if name == "AriaSyntheticEnvironmentsPi3XDataset":
+        from .aria_synthetic_environments_dataset import AriaSyntheticEnvironmentsPi3XDataset
+
+        return AriaSyntheticEnvironmentsPi3XDataset
     if name == "BlendedMVGDataset":
         from .blendedmvg_dataset import BlendedMVGDataset
 

@@ -1727,10 +1727,11 @@ Metadata：
 Format/layout: KITTI layouts differ by benchmark. Use official benchmark pages for Visual Odometry / SLAM, raw data, stereo, detection, tracking, and related downloads.
 - https://www.cvlibs.net/datasets/kitti/
 - https://www.cvlibs.net/datasets/kitti/eval_odometry.php
+- https://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_completion
 
-Reader notes: the current KITTI odometry loader targets odometry-style `sequences/<seq>/calib.txt`, image folders, and `poses/<seq>.txt`. Raw KITTI/OXTS and other benchmarks require separate roots and parsers.
+Reader notes: the current KITTI odometry loader targets odometry-style `sequences/<seq>/calib.txt`, image folders, and `poses/<seq>.txt`. Raw KITTI/OXTS and other benchmarks require separate roots and parsers. KITTI Depth Completion / Depth Prediction provides official semi-dense depth-map benchmark files, but they are a separate KITTI asset group rather than depth images inside the odometry layout. Use those files only through an explicit `depth_root` / dedicated depth-completion loader.
 
-目标转换：优先选择 odometry/raw 子集。相机内参从 calib 读取；pose 从 odometry poses 或 OXTS GPS/IMU 推导；LiDAR 转 point cloud/depth projection；stereo pairs 直接生成 `pair_type=stereo`，temporal pairs 按帧邻近生成。
+目标转换：优先选择 odometry/raw 子集。相机内参从 calib 读取；pose 从 odometry poses 或 OXTS GPS/IMU 推导；LiDAR 转 point cloud/depth projection；stereo pairs 直接生成 `pair_type=stereo`，temporal pairs 按帧邻近生成。若使用 KITTI Depth Completion 官方深度图，必须在 metadata 中标注为官方 depth-map 资产来源，不能和 odometry 默认 LiDAR 投影路径混写。
 
 风险点：KITTI 不同任务文件结构差异很大；raw data 的 OXTS pose 需地理坐标转换到局部 ENU/metric world。
 
@@ -1936,7 +1937,7 @@ Pi3X 类前馈几何训练不能把缺失字段伪装成真值。特别是 depth
 
 | 组别 | 已有数据源 | 示例 | 补全方案 | 训练准入 |
 | --- | --- | --- | --- | --- |
-| A | RGB + intrinsics + pose + dense depth | BlendedMVS；ScanNet/ARKitScenes/Hypersim 的 RGB-D 子集；CO3D v2 depth 子集 | 直接读取 depth，统一单位和 depth definition，生成 `valid_mask`，过滤 invalid frame | 可作为 GT depth 训练 |
+| A | RGB + intrinsics + pose + dense depth | BlendedMVS；ScanNet/ARKitScenes/Hypersim 的 RGB-D 子集；Aria Synthetic Environments 的 16-bit ray-distance depth；CO3D v2 depth 子集 | 直接读取 depth，统一单位和 depth definition，生成 `valid_mask`，过滤 invalid frame | 可作为 GT depth 训练 |
 | B | RGB + intrinsics + pose + LiDAR/SICK/radar/point cloud，但无 dense image depth | KITTI；KITTI-360；nuScenes；Waymo Perception | 按官方 calibration 和 pose chain 将点云投影到目标相机，生成 sparse depth | 仅用于支持 sparse depth supervision 的训练；dense GT depth 训练必须拒绝或先离线补全 |
 | C | RGB + pose/calibration + mesh 或 semantic mesh，但无传感器 depth | Replica；HM3D；Matterport3D mesh release；ScanNet++ mesh/DSLR 组合 | 用 mesh renderer 从已有或采样相机位姿渲染 z-depth、normal、semantic/instance | 可作为 rendered geometry supervision；不能标记为真实传感器 depth |
 | D | mesh/USD/GLB/URDF/3DGS/scene config，无现成 RGB-D 帧和相机轨迹 | 3D-FRONT；ReplicaCAD；InteriorAgent；InteriorGS；Tabletop；Objaverse-XL；Articraft-10K；SAGE-10k；Maya-like assets | 定义 `render_policy`，采样相机轨迹，渲染 RGB/depth/normal/mask/pose | 作为合成/渲染训练数据；不得混同真实采集数据 |

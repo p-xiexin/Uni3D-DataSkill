@@ -1,6 +1,17 @@
 {
   "datasets": [
     {
+      "label": "ase_train",
+      "dataset": "ase",
+      "root": "/mnt/datasets/AriaSyntheticEnvironments",
+      "index_file": "/mnt/datasets/AriaSyntheticEnvironments/ase_index.npy",
+      "roots": {
+        "scenes": "/mnt/datasets/AriaSyntheticEnvironments"
+      },
+      "scene_dirs": ["0"],
+      "fov_x_degrees": 90.0
+    },
+    {
       "label": "arkitscenes_train",
       "dataset": "arkitscenes",
       "root": "/mnt/datasets/ARKitScenes",

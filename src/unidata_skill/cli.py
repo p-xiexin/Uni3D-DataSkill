@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DatasetConfig, load_dataset_configs
+from .datasets.aria_synthetic_environments_dataset import AriaSyntheticEnvironmentsPi3XDataset, generate_ase_index
 from .datasets.arkit_scenes_dataset import ARKitScenesPi3XDataset, generate_arkit_scenes_index
 from .datasets.blendedmvg_dataset import BlendedMVGDataset
 from .datasets.hypersim_dataset import HypersimPi3XDataset, generate_hypersim_index
@@ -18,6 +19,14 @@ from .datasets.wayve_dataset import WayveScenesPi3XDataset, generate_wayve_index
 
 
 DATASET_LOADERS = {
+    "ase": {
+        "aliases": {"ase", "aria-synthetic-environments", "aria_synthetic_environments"},
+        "class": AriaSyntheticEnvironmentsPi3XDataset,
+        "index_builder": generate_ase_index,
+        "defaults": {"fov_x_degrees": 90.0},
+        "frame_num": 8,
+        "resolution": [512, 384],
+    },
     "arkitscenes": {
         "aliases": {"arkitscenes", "arkit-scenes", "arkit"},
         "class": ARKitScenesPi3XDataset,
@@ -157,7 +166,7 @@ def _coerce_dataset_kwargs(spec: dict[str, Any], config: DatasetConfig) -> dict[
     resolution = list(spec["resolution"])
     kwargs: dict[str, Any] = {
         "data_root": config.root,
-        "verbose": bool(options.get("verbose", True)),
+        "verbose": bool(options.get("verbose", False)),
         "frame_num": int(spec["frame_num"]),
         "resolution": [resolution],
     }
@@ -191,16 +200,17 @@ def _coerce_index_kwargs(config: DatasetConfig) -> dict[str, Any]:
     return kwargs
 
 
-def _print_sequence_summary(dataset: Any, max_items: int = 20) -> None:
+def _print_sequence_summary(dataset: Any) -> None:
     sequences = list(getattr(dataset, "sequences", []))
-    print("num sequences:", len(dataset))
-    print("first sequences:", sequences[:max_items])
+    print("sequences:", len(dataset))
+    if sequences:
+        print("first sequence:", sequences[0])
 
     num_imgs = getattr(dataset, "num_imgs", None)
     if isinstance(num_imgs, dict):
-        print("num_imgs:")
-        for sequence in sequences[:max_items]:
-            print(f"  {sequence}: {num_imgs.get(sequence, 0)}")
+        counts = [int(num_imgs.get(sequence, 0)) for sequence in sequences]
+        if counts:
+            print("frames:", sum(counts), f"(min={min(counts)}, max={max(counts)})")
 
 
 def _print_dataset_header(config: DatasetConfig) -> None:
@@ -218,14 +228,10 @@ def _sample_dataset(config: DatasetConfig) -> int:
         raise RuntimeError("No valid sequences found.")
 
     views = dataset[0]
-    print("sample index:", 0)
-    print("sample views:", len(views))
+    print("sample:", f"index=0 views={len(views)}")
     if views:
         first_view = views[0]
-        print("first label:", first_view.get("label"))
-        print("first instance:", first_view.get("instance"))
-        print("first image_path:", first_view.get("image_path"))
-        print("first depth_path:", first_view.get("depth_path"))
+        print("sample label:", first_view.get("label"))
     return 0
 
 

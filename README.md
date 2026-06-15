@@ -102,6 +102,7 @@ Supported dataset keys:
 
 | Dataset key | Loader |
 | --- | --- |
+| `ase`, `aria-synthetic-environments`, `aria_synthetic_environments` | Aria Synthetic Environments RGB-D layout |
 | `arkitscenes`, `arkit-scenes`, `arkit` | ARKitScenes raw RGB-D layout |
 | `blendedmvs`, `blendedmvg` | BlendedMVG layout |
 | `hypersim`, `hyper-sim` | Hypersim scene/camera HDF5 layout |
