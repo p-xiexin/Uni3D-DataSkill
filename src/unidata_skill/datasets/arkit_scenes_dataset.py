@@ -115,24 +115,25 @@ def _read_depth_png_meters(path: Path) -> np.ndarray:
 
 
 def _default_scans_root(data_root: Path) -> Path:
-    if (data_root / "3dod").is_dir():
-        return data_root / "3dod"
+    if (data_root / "raw").is_dir():
+        return data_root / "raw"
     return data_root
 
 
-def _frames_dir(scan_dir: Path) -> Path | None:
-    direct = scan_dir / f"{scan_dir.name}_frames"
-    if direct.is_dir():
-        return direct
-    matches = sorted(scan_dir.glob("*_frames"))
-    return matches[0] if matches else None
+def _is_raw_scan_dir(scan_dir: Path) -> bool:
+    return (
+        (scan_dir / "lowres_wide").is_dir()
+        and (scan_dir / "lowres_depth").is_dir()
+        and (scan_dir / "lowres_wide_intrinsics").is_dir()
+        and (scan_dir / "lowres_wide.traj").is_file()
+    )
 
 
 def _find_scan_dir(scans_root: Path, scan_id: str, splits: tuple[str, ...]) -> Path:
     candidates = [scans_root / split / scan_id for split in splits]
-    candidates += [scans_root / "sample_data" / scan_id, scans_root / scan_id]
+    candidates += [scans_root / scan_id]
     for candidate in candidates:
-        if candidate.is_dir():
+        if candidate.is_dir() and _is_raw_scan_dir(candidate):
             return candidate
     raise FileNotFoundError(f"ARKitScenes scan not found under {scans_root}: {scan_id}")
 
@@ -142,13 +143,11 @@ def _discover_scan_dirs(scans_root: Path, splits: tuple[str, ...], scan_ids: lis
         return {scan_id: _find_scan_dir(scans_root, scan_id, splits) for scan_id in scan_ids}
     scan_dirs: dict[str, Path] = {}
     roots = [scans_root / split for split in splits if (scans_root / split).is_dir()]
-    if (scans_root / "sample_data").is_dir():
-        roots.append(scans_root / "sample_data")
     if not roots:
         roots = [scans_root]
     for root in roots:
         for path in sorted(root.iterdir()):
-            if path.is_dir() and _frames_dir(path) is not None:
+            if path.is_dir() and _is_raw_scan_dir(path):
                 scan_dirs[path.name] = path
     return scan_dirs
 
@@ -167,14 +166,12 @@ def generate_arkit_scenes_index(
     records = []
     for scan_id in tqdm(sorted(scan_dirs), desc="[ARKitScenes] building index", unit="scan"):
         scan_dir = scan_dirs[scan_id]
-        frames_dir = _frames_dir(scan_dir)
-        if frames_dir is None:
-            continue
-        image_dir = frames_dir / "wide"
-        depth_dir = frames_dir / "depth_densified"
-        intrinsics_dir = frames_dir / "color_intrinsics"
-        pose_path = frames_dir / "color.traj"
-        for name, path in (("wide", image_dir), ("depth_densified", depth_dir), ("color_intrinsics", intrinsics_dir)):
+        image_dir = scan_dir / "lowres_wide"
+        depth_dir = scan_dir / "lowres_depth"
+        confidence_dir = scan_dir / "confidence"
+        intrinsics_dir = scan_dir / "lowres_wide_intrinsics"
+        pose_path = scan_dir / "lowres_wide.traj"
+        for name, path in (("lowres_wide", image_dir), ("lowres_depth", depth_dir), ("lowres_wide_intrinsics", intrinsics_dir)):
             _require_dir(path, f"{scan_id}.{name}")
         if not pose_path.is_file():
             raise FileNotFoundError(f"ARKitScenes trajectory not found: {pose_path}")
@@ -182,6 +179,7 @@ def generate_arkit_scenes_index(
         poses = _read_trajectory(pose_path)
         intrinsics_by_time = {_timestamp_from_stem(path): _read_pincam(path) for path in intrinsics_dir.glob("*.pincam")}
         depths_by_stem = {path.stem: path for path in depth_dir.glob("*.png")}
+        confidence_by_stem = {path.stem: path for path in confidence_dir.glob("*.png")} if confidence_dir.is_dir() else {}
         frames = []
         for image_path in sorted(image_dir.glob("*.png")):
             timestamp = _timestamp_from_stem(image_path)
@@ -195,6 +193,9 @@ def generate_arkit_scenes_index(
                     "frame_id": image_path.stem,
                     "image": _relative(image_path, scans_root),
                     "depth": _relative(depth_path, scans_root),
+                    "confidence": None
+                    if image_path.stem not in confidence_by_stem
+                    else _relative(confidence_by_stem[image_path.stem], scans_root),
                     "camera_intrinsics": intrinsics.astype(np.float32).tolist(),
                     "camera_pose": pose.astype(np.float32).tolist(),
                 }

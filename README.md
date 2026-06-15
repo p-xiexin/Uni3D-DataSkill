@@ -102,7 +102,7 @@ Supported dataset keys:
 
 | Dataset key | Loader |
 | --- | --- |
-| `arkitscenes`, `arkit-scenes`, `arkit` | ARKitScenes 3DOD RGB-D layout |
+| `arkitscenes`, `arkit-scenes`, `arkit` | ARKitScenes raw RGB-D layout |
 | `blendedmvs`, `blendedmvg` | BlendedMVG layout |
 | `hypersim`, `hyper-sim` | Hypersim scene/camera HDF5 layout |
 | `kitti360`, `kitti-360` | KITTI-360 raw perspective layout |

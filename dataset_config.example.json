@@ -6,7 +6,7 @@
       "root": "/mnt/datasets/ARKitScenes",
       "index_file": "/mnt/datasets/ARKitScenes/arkitscenes_index.npy",
       "roots": {
-        "scans": "/mnt/datasets/ARKitScenes"
+        "scans": "/mnt/datasets/ARKitScenes/raw"
       },
       "splits": ["Training", "Validation"],
       "scan_ids": ["41048152"]
