@@ -21,6 +21,7 @@ __all__ = [
     "HypersimPi3XDataset",
     "Kitti360Pi3XDataset",
     "KittiOdometryPi3XDataset",
+    "KittiRawPi3XDataset",
     "NuScenesPi3XDataset",
     "SagePi3XDataset",
     "UCO3DPi3XDataset",
@@ -57,6 +58,10 @@ def __getattr__(name: str):
         from .kitti_odometry_dataset import KittiOdometryPi3XDataset
 
         return KittiOdometryPi3XDataset
+    if name == "KittiRawPi3XDataset":
+        from .kitti_raw_dataset import KittiRawPi3XDataset
+
+        return KittiRawPi3XDataset
     if name == "NuScenesPi3XDataset":
         from .nuscenes_dataset import NuScenesPi3XDataset
 

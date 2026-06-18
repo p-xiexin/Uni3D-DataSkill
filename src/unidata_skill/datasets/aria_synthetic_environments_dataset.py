@@ -199,10 +199,43 @@ def _read_depth_png_meters(path: Path) -> np.ndarray:
     return depth / 1000.0
 
 
-def _intrinsics_from_fov(width: int, height: int, fov_x_degrees: float) -> np.ndarray:
-    fx = 0.5 * width / math.tan(math.radians(fov_x_degrees) * 0.5)
-    fy = fx
-    return np.array([[fx, 0.0, width / 2.0], [0.0, fy, height / 2.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+def _load_ase_rgb_calibration() -> Any:
+    try:
+        from projectaria_tools.projects import ase
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "AriaSyntheticEnvironmentsPi3XDataset requires projectaria_tools for official ASE RGB calibration. "
+            "Install projectaria_tools in the active environment."
+        ) from exc
+    return ase.get_ase_rgb_calibration()
+
+
+def _transform_to_matrix(transform: Any) -> np.ndarray:
+    if hasattr(transform, "to_matrix"):
+        matrix = transform.to_matrix()
+    else:
+        matrix = transform
+    matrix = np.asarray(matrix, dtype=np.float32)
+    if matrix.shape != (4, 4):
+        raise ValueError(f"expected 4x4 transform from ASE calibration, got {matrix.shape}")
+    return matrix
+
+
+def _projection_params(calibration: Any) -> np.ndarray:
+    if not hasattr(calibration, "get_projection_params"):
+        raise ValueError("ASE RGB calibration does not expose get_projection_params()")
+    params = np.asarray(calibration.get_projection_params(), dtype=np.float32).reshape(-1)
+    if params.size < 3:
+        raise ValueError(f"ASE RGB calibration projection params are too short: {params.size}")
+    return params
+
+
+def _intrinsics_from_ase_calibration(calibration: Any) -> np.ndarray:
+    params = _projection_params(calibration)
+    # ASE uses the Project Aria fisheye model. The first projection parameters
+    # are focal length and principal point; higher terms are fisheye distortion.
+    focal, cx, cy = float(params[0]), float(params[1]), float(params[2])
+    return np.array([[focal, 0.0, cx], [0.0, focal, cy], [0.0, 0.0, 1.0]], dtype=np.float32)
 
 
 def _ray_distance_to_planar_depth(distance: np.ndarray, intrinsics: np.ndarray) -> np.ndarray:
@@ -214,14 +247,47 @@ def _ray_distance_to_planar_depth(distance: np.ndarray, intrinsics: np.ndarray) 
     return (distance / ray_norm).astype(np.float32)
 
 
+def _ray_z_from_official_calibration(calibration: Any, image_shape: tuple[int, int]) -> np.ndarray | None:
+    if not hasattr(calibration, "unproject"):
+        return None
+
+    height, width = image_shape
+    ray_z = np.zeros((height, width), dtype=np.float32)
+    for v in range(height):
+        for u in range(width):
+            ray = calibration.unproject(np.array([float(u), float(v)], dtype=np.float64))
+            if ray is None:
+                continue
+            ray = np.asarray(ray, dtype=np.float32).reshape(-1)
+            if ray.size < 3 or not np.isfinite(ray[:3]).all():
+                continue
+            norm = float(np.linalg.norm(ray[:3]))
+            if norm > 1e-8:
+                ray_z[v, u] = ray[2] / norm
+    return ray_z
+
+
+def _ray_distance_to_planar_depth_with_calibration(
+    distance: np.ndarray,
+    calibration: Any,
+    intrinsics: np.ndarray,
+    ray_z_cache: dict[tuple[int, int], np.ndarray],
+) -> np.ndarray:
+    shape = tuple(distance.shape)
+    if shape not in ray_z_cache:
+        ray_z = _ray_z_from_official_calibration(calibration, shape)
+        if ray_z is None:
+            return _ray_distance_to_planar_depth(distance, intrinsics)
+        ray_z_cache[shape] = ray_z
+    return (distance * ray_z_cache[shape]).astype(np.float32)
+
+
 def generate_ase_index(
     data_root: str | Path,
     output_path: str | Path | None = None,
     chunks: list[str] | None = None,
     roots: dict[str, str | Path] | None = None,
-    fov_x_degrees: float = 90.0,
 ) -> dict[str, Any]:
-    del fov_x_degrees
     data_root = Path(data_root)
     scenes_root = _require_dir(_path_roots(roots).get("scenes", data_root), "roots.scenes")
 
@@ -300,7 +366,6 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
         **kwargs: Any,
     ) -> None:
         self.verbose = verbose
-        self.fov_x_degrees = float(kwargs.pop("fov_x_degrees", 90.0))
         super().__init__(**kwargs)
         self.dataset_label = "AriaSyntheticEnvironmentsPi3X"
         self.data_root = Path(data_root)
@@ -308,9 +373,13 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
         self.optional_roots = _optional_path_roots(optional_roots)
         self.scenes_root = _require_dir(component_roots.get("scenes", self.data_root), "roots.scenes")
         self.trajectory_cache: dict[str, list[np.ndarray]] = {}
+        self.rgb_calibration = _load_ase_rgb_calibration()
+        self.camera_intrinsics = _intrinsics_from_ase_calibration(self.rgb_calibration)
+        self.device_from_camera = _transform_to_matrix(self.rgb_calibration.get_transform_device_camera())
+        self.ray_z_cache: dict[tuple[int, int], np.ndarray] = {}
 
         if index_file is None:
-            index = generate_ase_index(self.data_root, chunks=chunks, roots=roots, fov_x_degrees=self.fov_x_degrees)
+            index = generate_ase_index(self.data_root, chunks=chunks, roots=roots)
         else:
             index_file_path = _resolve_existing_path(self.data_root, index_file, "index_file")
             index = np.load(index_file_path, allow_pickle=True).item()
@@ -367,8 +436,14 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
                 continue
 
             ray_distance = _read_depth_png_meters(depth_path)
-            intrinsics = _intrinsics_from_fov(img.shape[1], img.shape[0], self.fov_x_degrees)
-            depthmap = _ray_distance_to_planar_depth(ray_distance, intrinsics)
+            intrinsics = self.camera_intrinsics.copy()
+            depthmap = _ray_distance_to_planar_depth_with_calibration(
+                ray_distance,
+                self.rgb_calibration,
+                intrinsics,
+                self.ray_z_cache,
+            )
+            camera_pose = poses[frame_no] @ self.device_from_camera
             img, depthmap, intrinsics = self._crop_resize_if_necessary(
                 img,
                 depthmap,
@@ -382,7 +457,7 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
                 {
                     "img": img,
                     "depthmap": depthmap.astype(np.float32),
-                    "camera_pose": poses[frame_no].astype(np.float32),
+                    "camera_pose": camera_pose.astype(np.float32),
                     "camera_intrinsics": intrinsics.astype(np.float32),
                     "dataset": self.dataset_label,
                     "label": scene,
@@ -395,10 +470,10 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
                     if record.get("scene_language") is None
                     else str(self.scenes_root / record["scene_language"]),
                     "depth_source": "native_gt_dense",
-                    "depth_definition": "planar_z_from_ase_ray_distance_mm_assumed_pinhole",
+                    "depth_definition": "planar_z_from_ase_ray_distance_mm_official_calibration",
                     "pose_source": "native_gt",
-                    "intrinsics_source": "assumed",
-                    "camera_model": "fisheye_source_assumed_pinhole",
+                    "intrinsics_source": "native_gt",
+                    "camera_model": "aria_rgb_fisheye_official_calibration",
                     "pseudo_label": False,
                     "valid_mask_required": True,
                 }

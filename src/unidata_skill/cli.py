@@ -11,6 +11,7 @@ from .datasets.blendedmvg_dataset import BlendedMVGDataset
 from .datasets.hypersim_dataset import HypersimPi3XDataset, generate_hypersim_index
 from .datasets.kitti360_dataset import Kitti360Pi3XDataset, generate_kitti360_index
 from .datasets.kitti_odometry_dataset import KittiOdometryPi3XDataset, generate_kitti_odometry_index
+from .datasets.kitti_raw_dataset import KittiRawPi3XDataset, generate_kitti_raw_index
 from .datasets.nuscenes_dataset import NuScenesPi3XDataset, generate_nuscenes_index
 from .datasets.sage_dataset import SagePi3XDataset, generate_sage_index
 from .datasets.uco3d_dataset import UCO3DPi3XDataset
@@ -23,7 +24,7 @@ DATASET_LOADERS = {
         "aliases": {"ase", "aria-synthetic-environments", "aria_synthetic_environments"},
         "class": AriaSyntheticEnvironmentsPi3XDataset,
         "index_builder": generate_ase_index,
-        "defaults": {"fov_x_degrees": 90.0},
+        "defaults": {},
         "frame_num": 8,
         "resolution": [512, 384],
     },
@@ -55,6 +56,14 @@ DATASET_LOADERS = {
         "class": KittiOdometryPi3XDataset,
         "index_builder": generate_kitti_odometry_index,
         "defaults": {"cameras": ["image_2"]},
+        "frame_num": 8,
+        "resolution": [512, 384],
+    },
+    "kitti-raw": {
+        "aliases": {"kitti-raw", "kitti_raw", "kitti-depth", "kitti-depth-completion"},
+        "class": KittiRawPi3XDataset,
+        "index_builder": generate_kitti_raw_index,
+        "defaults": {"cameras": ["image_02"], "splits": ["train"]},
         "frame_num": 8,
         "resolution": [512, 384],
     },

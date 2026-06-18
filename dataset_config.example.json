@@ -8,8 +8,7 @@
       "roots": {
         "scenes": "/mnt/datasets/AriaSyntheticEnvironments"
       },
-      "chunks": ["train_chunk_0000803"],
-      "fov_x_degrees": 90.0
+      "chunks": ["train_chunk_0000803"]
     },
     {
       "label": "arkitscenes_train",
@@ -78,6 +77,20 @@
       },
       "sequences": ["00"],
       "cameras": ["image_2"]
+    },
+    {
+      "label": "kitti_raw_depth_train",
+      "dataset": "kitti-raw",
+      "root": "/mnt/datasets/KITTI-raw",
+      "index_file": "/mnt/datasets/KITTI-raw/kitti_raw_depth_index.npy",
+      "roots": {
+        "raw": "/mnt/datasets/KITTI-raw",
+        "depth": "/mnt/datasets/KITTI-depth/data_depth_annotated",
+        "calibration": "/mnt/datasets/KITTI-raw"
+      },
+      "splits": ["train"],
+      "sequences": ["2011_09_26_drive_0001_sync"],
+      "cameras": ["image_02"]
     },
     {
       "label": "nuscenes_mini",

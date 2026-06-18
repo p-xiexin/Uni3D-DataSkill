@@ -102,6 +102,7 @@ cp dataset_config.example.json dataset_config.local.json
 | `hypersim`, `hyper-sim` | Hypersim scene/camera HDF5 layout |
 | `kitti360`, `kitti-360` | KITTI-360 raw perspective layout |
 | `kitti`, `kitti-odometry` | KITTI odometry-style layout |
+| `kitti-raw`, `kitti_raw`, `kitti-depth`, `kitti-depth-completion` | KITTI raw layout with official depth completion ground truth |
 | `nuscenes` | nuScenes JSON table layout |
 | `sage`, `sage-10k`, `sage10k` | SAGE-10k sampled route layout |
 | `uco3d`, `uco3d-depth` | uCO3D official package wrapper |

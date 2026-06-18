@@ -16,9 +16,9 @@ raw dataset root
   -> sequence summary
 ```
 
-Implemented loaders include KITTI-360, KITTI odometry, nuScenes table layouts,
-WayveScenes-style transforms, Waymo KITTI-style converted layouts, SAGE-10k
-sampled route layouts, and BlendedMVG.
+Implemented loaders include KITTI-360, KITTI raw with official aligned depth,
+KITTI odometry, nuScenes table layouts, WayveScenes-style transforms, Waymo
+KITTI-style converted layouts, SAGE-10k sampled route layouts, and BlendedMVG.
 
 ## Requirements
 
@@ -108,6 +108,7 @@ Supported dataset keys:
 | `hypersim`, `hyper-sim` | Hypersim scene/camera HDF5 layout |
 | `kitti360`, `kitti-360` | KITTI-360 raw perspective layout |
 | `kitti`, `kitti-odometry` | KITTI odometry-style layout |
+| `kitti-raw`, `kitti_raw`, `kitti-depth`, `kitti-depth-completion` | KITTI raw layout with official depth completion ground truth |
 | `nuscenes` | nuScenes JSON table layout |
 | `sage`, `sage-10k`, `sage10k` | SAGE-10k sampled route layout |
 | `uco3d`, `uco3d-depth` | uCO3D official package wrapper |

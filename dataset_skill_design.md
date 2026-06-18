@@ -1729,7 +1729,7 @@ Format/layout: KITTI layouts differ by benchmark. Use official benchmark pages f
 - https://www.cvlibs.net/datasets/kitti/eval_odometry.php
 - https://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_completion
 
-Reader notes: the current KITTI odometry loader targets odometry-style `sequences/<seq>/calib.txt`, image folders, and `poses/<seq>.txt`. Raw KITTI/OXTS and other benchmarks require separate roots and parsers. KITTI Depth Completion / Depth Prediction provides official semi-dense depth-map benchmark files, but they are a separate KITTI asset group rather than depth images inside the odometry layout. Use those files only through an explicit `depth_root` / dedicated depth-completion loader.
+Reader notes: the KITTI odometry loader targets odometry-style `sequences/<seq>/calib.txt`, image folders, and `poses/<seq>.txt`. The KITTI raw loader targets raw drives with OXTS GPS/IMU and KITTI Depth Completion / Depth Prediction official semi-dense depth-map files. These depth maps are a separate KITTI asset group rather than depth images inside the odometry layout, so keep them behind explicit `roots.depth` configuration.
 
 目标转换：优先选择 odometry/raw 子集。相机内参从 calib 读取；pose 从 odometry poses 或 OXTS GPS/IMU 推导；LiDAR 转 point cloud/depth projection；stereo pairs 直接生成 `pair_type=stereo`，temporal pairs 按帧邻近生成。若使用 KITTI Depth Completion 官方深度图，必须在 metadata 中标注为官方 depth-map 资产来源，不能和 odometry 默认 LiDAR 投影路径混写。
 
