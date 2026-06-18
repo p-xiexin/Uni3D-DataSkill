@@ -87,20 +87,26 @@ def _parse_float_tokens(tokens: list[str], path: Path, line_no: int) -> list[flo
 
 def _parse_kitti_calib(path: Path) -> dict[str, np.ndarray]:
     records: dict[str, np.ndarray] = {}
+    matrix_prefixes = ("K_", "R_", "T_", "S_", "D_", "P_rect_", "R_rect_", "S_rect_")
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = _strip_inline_comment(line)
         if not line or ":" not in line:
             continue
         key, value = line.split(":", 1)
+        key = key.strip()
+        if not key.startswith(matrix_prefixes):
+            continue
         values = _parse_float_tokens(value.split(), path, line_no)
         if len(values) == 12:
-            records[key.strip()] = np.asarray(values, dtype=np.float32).reshape(3, 4)
+            records[key] = np.asarray(values, dtype=np.float32).reshape(3, 4)
         elif len(values) == 9:
-            records[key.strip()] = np.asarray(values, dtype=np.float32).reshape(3, 3)
+            records[key] = np.asarray(values, dtype=np.float32).reshape(3, 3)
         elif len(values) == 3:
-            records[key.strip()] = np.asarray(values, dtype=np.float32)
+            records[key] = np.asarray(values, dtype=np.float32)
+        elif len(values) in (2, 5):
+            records[key] = np.asarray(values, dtype=np.float32)
         else:
-            raise ValueError(f"{path}:{line_no}: unsupported calibration value count for {key.strip()!r}: {len(values)}")
+            raise ValueError(f"{path}:{line_no}: unsupported calibration value count for {key!r}: {len(values)}")
     return records
 
 
