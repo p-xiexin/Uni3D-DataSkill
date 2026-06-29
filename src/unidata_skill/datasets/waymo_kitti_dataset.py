@@ -51,8 +51,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
@@ -158,7 +158,7 @@ def generate_waymo_kitti_index(
                     {
                         "camera_id": camera,
                         "frame_id": image_path.stem,
-                        "image": _relative(image_path, sequences_root),
+                        "image": _absolute(image_path),
                         "camera_intrinsics": intrinsics.tolist(),
                         "camera_pose": poses[idx].astype(np.float32).tolist(),
                     }
@@ -235,7 +235,7 @@ class WaymoKittiPi3XDataset(BaseDataset):
         target_width, target_height = _as_resolution(resolution)
         for idx in idxs:
             frame = frames[idx]
-            image_path = self.sequences_root / frame["image"]
+            image_path = Path(frame["image"])
             img = _read_rgb_image(image_path)
             if img is None:
                 print(f"Warning: Failed to load image: {image_path}", flush=True)

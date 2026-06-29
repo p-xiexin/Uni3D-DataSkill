@@ -101,8 +101,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def load_perspective_calibration(calibration_root: Path) -> dict[str, dict[str, np.ndarray]]:
@@ -317,7 +317,7 @@ def generate_kitti360_index(
                     {
                         "camera_id": camera_id,
                         "frame_id": frame_id,
-                        "image": _relative(image_path, images_root),
+                        "image": _absolute(image_path),
                         "camera_pose": pose.astype(np.float32).tolist(),
                     }
                 )
@@ -420,7 +420,7 @@ class Kitti360Pi3XDataset(BaseDataset):
         views = []
         for idx in idxs:
             frame = frames[idx]
-            image_path = self.images_root / frame["image"]
+            image_path = Path(frame["image"])
             camera_id = frame["camera_id"]
             frame_id = int(frame["frame_id"])
             img = _read_rgb_image(image_path)

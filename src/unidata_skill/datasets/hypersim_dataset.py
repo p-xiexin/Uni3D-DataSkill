@@ -34,8 +34,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def _read_hdf5_dataset(path: Path) -> np.ndarray:
@@ -149,9 +149,9 @@ def generate_hypersim_index(
                     {
                         "camera_id": camera_id,
                         "frame_no": frame_no,
-                        "preview": None if preview_path is None else _relative(preview_path, scenes_root),
-                        "color_hdf5": _relative(color_hdf5, scenes_root) if color_hdf5.is_file() else None,
-                        "depth": _relative(depth_path, scenes_root),
+                        "preview": None if preview_path is None else _absolute(preview_path),
+                        "color_hdf5": _absolute(color_hdf5) if color_hdf5.is_file() else None,
+                        "depth": _absolute(depth_path),
                         "camera_pose": pose.astype(np.float32).tolist(),
                     }
                 )
@@ -234,9 +234,9 @@ class HypersimPi3XDataset(BaseDataset):
         views = []
         for idx in idxs:
             frame = frames[idx]
-            preview_path = None if frame.get("preview") is None else self.scenes_root / frame["preview"]
-            color_hdf5_path = None if frame.get("color_hdf5") is None else self.scenes_root / frame["color_hdf5"]
-            depth_path = self.scenes_root / frame["depth"]
+            preview_path = None if frame.get("preview") is None else Path(frame["preview"])
+            color_hdf5_path = None if frame.get("color_hdf5") is None else Path(frame["color_hdf5"])
+            depth_path = Path(frame["depth"])
             img = _read_preview_or_hdf5_image(preview_path, color_hdf5_path)
             if img is None:
                 continue

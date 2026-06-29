@@ -40,8 +40,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def _read_rgb_image(path: Path) -> np.ndarray | None:
@@ -191,11 +191,11 @@ def generate_arkit_scenes_index(
             frames.append(
                 {
                     "frame_id": image_path.stem,
-                    "image": _relative(image_path, scans_root),
-                    "depth": _relative(depth_path, scans_root),
+                    "image": _absolute(image_path),
+                    "depth": _absolute(depth_path),
                     "confidence": None
                     if image_path.stem not in confidence_by_stem
-                    else _relative(confidence_by_stem[image_path.stem], scans_root),
+                    else _absolute(confidence_by_stem[image_path.stem]),
                     "camera_intrinsics": intrinsics.astype(np.float32).tolist(),
                     "camera_pose": pose.astype(np.float32).tolist(),
                 }
@@ -268,8 +268,8 @@ class ARKitScenesPi3XDataset(BaseDataset):
         views = []
         for idx in idxs:
             frame = frames[idx]
-            image_path = self.scans_root / frame["image"]
-            depth_path = self.scans_root / frame["depth"]
+            image_path = Path(frame["image"])
+            depth_path = Path(frame["depth"])
             img = _read_rgb_image(image_path)
             if img is None:
                 continue

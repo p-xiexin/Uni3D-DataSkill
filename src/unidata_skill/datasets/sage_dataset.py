@@ -40,8 +40,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def _frame_id_from_color(path: Path) -> str:
@@ -166,8 +166,8 @@ def generate_sage_index(
             frames.append(
                 {
                     "frame_id": frame_id,
-                    "color": _relative(color_path, scenes_root),
-                    "depth": _relative(depth_path, scenes_root),
+                    "color": _absolute(color_path),
+                    "depth": _absolute(depth_path),
                 }
             )
         if not frames:
@@ -180,9 +180,9 @@ def generate_sage_index(
                 "layout": layout,
                 "setting": setting,
                 "route": route,
-                "route_dir": _relative(route_dir, scenes_root),
-                "camera": _relative(camera_path, scenes_root),
-                "trajectory": _relative(trajectory_path, scenes_root),
+                "route_dir": _absolute(route_dir),
+                "camera": _absolute(camera_path),
+                "trajectory": _absolute(trajectory_path),
                 "frames": frames,
             }
         )
@@ -261,13 +261,13 @@ class SagePi3XDataset(BaseDataset):
     def _load_camera(self, route: dict[str, Any]) -> np.ndarray:
         sequence_id = route["sequence_id"]
         if sequence_id not in self.camera_cache:
-            self.camera_cache[sequence_id] = load_sage_camera(self.scenes_root / route["camera"])
+            self.camera_cache[sequence_id] = load_sage_camera(Path(route["camera"]))
         return self.camera_cache[sequence_id]
 
     def _load_trajectory(self, route: dict[str, Any]) -> dict[str, np.ndarray]:
         sequence_id = route["sequence_id"]
         if sequence_id not in self.trajectory_cache:
-            self.trajectory_cache[sequence_id] = load_sage_trajectory(self.scenes_root / route["trajectory"])
+            self.trajectory_cache[sequence_id] = load_sage_trajectory(Path(route["trajectory"]))
         return self.trajectory_cache[sequence_id]
 
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
@@ -284,8 +284,8 @@ class SagePi3XDataset(BaseDataset):
         for idx in idxs:
             frame = frames[idx]
             frame_id = frame["frame_id"]
-            image_path = self.scenes_root / frame["color"]
-            depth_path = self.scenes_root / frame["depth"]
+            image_path = Path(frame["color"])
+            depth_path = Path(frame["depth"])
             img = _read_rgb_image(image_path)
             if img is None:
                 continue
@@ -315,7 +315,7 @@ class SagePi3XDataset(BaseDataset):
                     "prefix": f"{route['sequence_id']}_{frame_id}",
                     "image_path": str(image_path),
                     "depth_path": str(depth_path),
-                    "route_dir": str(self.scenes_root / route["route_dir"]),
+                    "route_dir": str(Path(route["route_dir"])),
                     "domain": route["domain"],
                     "layout": route["layout"],
                     "setting": route["setting"],

@@ -52,8 +52,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def _as_resolution(resolution: list[int] | tuple[int, int]) -> tuple[int, int]:
@@ -67,9 +67,12 @@ def _read_json(path: Path) -> Any:
 
 
 def _resolve_image_path(scenes_root: Path, images_root: Path | None, scene: str, image: str) -> Path:
+    image_path = Path(image)
+    if image_path.is_absolute():
+        return image_path
     if images_root is not None:
-        return images_root / scene / image
-    return scenes_root / scene / image
+        return images_root / scene / image_path
+    return scenes_root / scene / image_path
 
 
 def generate_wayve_index(
@@ -82,6 +85,9 @@ def generate_wayve_index(
     data_root = Path(data_root)
     component_roots = _path_roots(roots)
     scenes_root = _require_dir(component_roots.get("scenes", data_root), "roots.scenes")
+    images_root = component_roots.get("images")
+    if images_root is not None:
+        _require_dir(images_root, "roots.images")
     scene_names = scene_dirs or sorted(path.name for path in scenes_root.iterdir() if (path / transforms_name).is_file())
 
     records = []
@@ -100,7 +106,7 @@ def generate_wayve_index(
                 {
                     "camera_id": str(item.get("camera", item.get("camera_id", "camera"))),
                     "frame_id": str(item.get("frame_id", idx)),
-                    "image": str(item["file_path"]),
+                    "image": _absolute(_resolve_image_path(scenes_root, images_root, scene, str(item["file_path"]))),
                     "camera_intrinsics": [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
                     "camera_pose": np.array(item["transform_matrix"], dtype=np.float32).reshape(4, 4).tolist(),
                     "split": item.get("split", transforms.get("split", "unknown")),
@@ -180,7 +186,7 @@ class WayveScenesPi3XDataset(BaseDataset):
         target_width, target_height = _as_resolution(resolution)
         for idx in idxs:
             frame = frames[idx]
-            image_path = _resolve_image_path(self.scenes_root, self.images_root, scene, frame["image"])
+            image_path = Path(frame["image"])
             img = _read_rgb_image(image_path)
             if img is None:
                 print(f"Warning: Failed to load image: {image_path}", flush=True)

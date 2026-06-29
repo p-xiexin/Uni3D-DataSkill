@@ -41,8 +41,8 @@ def _resolve_existing_path(data_root: Path, value: str | Path, name: str) -> Pat
     raise FileNotFoundError(f"{name} not found: {candidates[-1]}")
 
 
-def _relative(path: Path, root: Path) -> str:
-    return path.relative_to(root).as_posix()
+def _absolute(path: Path) -> str:
+    return str(path.resolve())
 
 
 def _read_rgb_image(path: Path) -> np.ndarray | None:
@@ -293,7 +293,7 @@ def generate_ase_index(
 
     records = []
     for scene_dir in tqdm(_discover_scene_dirs(scenes_root, chunks), desc="[ASE] building index", unit="scene"):
-        scene = _relative(scene_dir, scenes_root)
+        scene = scene_dir.relative_to(scenes_root).as_posix()
         rgb_dir = _require_dir(scene_dir / "rgb", f"{scene}.rgb")
         depth_dir = _require_dir(scene_dir / "depth", f"{scene}.depth")
         trajectory_path = _trajectory_path(scene_dir)
@@ -319,26 +319,26 @@ def generate_ase_index(
                 {
                     "frame_no": frame_no,
                     "frame_id": f"{frame_no:07d}",
-                    "image": _relative(image_path, scenes_root),
-                    "depth": _relative(depth_path, scenes_root),
-                    "instance": None if frame_no not in instance_by_frame else _relative(instance_by_frame[frame_no], scenes_root),
+                    "image": _absolute(image_path),
+                    "depth": _absolute(depth_path),
+                    "instance": None if frame_no not in instance_by_frame else _absolute(instance_by_frame[frame_no]),
                 }
             )
         frames.sort(key=lambda frame: frame["frame_no"])
         records.append(
             {
                 "sequence_id": scene,
-                "trajectory": _relative(trajectory_path, scenes_root),
-                "scene_language": _relative(scene_dir / "ase_scene_language.txt", scenes_root)
+                "trajectory": _absolute(trajectory_path),
+                "scene_language": _absolute(scene_dir / "ase_scene_language.txt")
                 if (scene_dir / "ase_scene_language.txt").is_file()
                 else None,
-                "object_instances_to_classes": _relative(scene_dir / "object_instances_to_classes.json", scenes_root)
+                "object_instances_to_classes": _absolute(scene_dir / "object_instances_to_classes.json")
                 if (scene_dir / "object_instances_to_classes.json").is_file()
                 else None,
-                "semidense_points": _relative(scene_dir / "semidense_points.csv.gz", scenes_root)
+                "semidense_points": _absolute(scene_dir / "semidense_points.csv.gz")
                 if (scene_dir / "semidense_points.csv.gz").is_file()
                 else None,
-                "semidense_observations": _relative(scene_dir / "semidense_observations.csv.gz", scenes_root)
+                "semidense_observations": _absolute(scene_dir / "semidense_observations.csv.gz")
                 if (scene_dir / "semidense_observations.csv.gz").is_file()
                 else None,
                 "frames": frames,
@@ -406,7 +406,7 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
     def _load_trajectory(self, record: dict[str, Any]) -> list[np.ndarray]:
         scene = record["sequence_id"]
         if scene not in self.trajectory_cache:
-            self.trajectory_cache[scene] = load_ase_trajectory(self.scenes_root / record["trajectory"])
+            self.trajectory_cache[scene] = load_ase_trajectory(Path(record["trajectory"]))
         return self.trajectory_cache[scene]
 
     def _get_views(self, index: int, resolution: list[int], rng: np.random.Generator, is_test: bool = False) -> list[dict[str, Any]]:
@@ -429,8 +429,8 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
             if frame_no >= len(poses):
                 raise KeyError(f"ASE pose not found for {scene} frame {frame_no}")
 
-            image_path = self.scenes_root / frame["image"]
-            depth_path = self.scenes_root / frame["depth"]
+            image_path = Path(frame["image"])
+            depth_path = Path(frame["depth"])
             img = _read_rgb_image(image_path)
             if img is None:
                 continue
@@ -465,10 +465,10 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
                     "prefix": f"{scene}_{frame['frame_id']}",
                     "image_path": str(image_path),
                     "depth_path": str(depth_path),
-                    "instance_path": None if frame.get("instance") is None else str(self.scenes_root / frame["instance"]),
+                    "instance_path": None if frame.get("instance") is None else str(Path(frame["instance"])),
                     "scene_language_path": None
                     if record.get("scene_language") is None
-                    else str(self.scenes_root / record["scene_language"]),
+                    else str(Path(record["scene_language"])),
                     "depth_source": "native_gt_dense",
                     "depth_definition": "planar_z_from_ase_ray_distance_mm_official_calibration",
                     "pose_source": "native_gt",

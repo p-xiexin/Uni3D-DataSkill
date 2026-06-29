@@ -84,12 +84,10 @@ def _transform(rotation: np.ndarray, translation: Iterable[float]) -> np.ndarray
     return pose
 
 
-def _resolve_index_data_path(filename: str) -> str:
-    return Path(filename).as_posix()
-
-
 def _resolve_data_path(data_blob_root: Path, samples_root: Path | None, filename: str) -> Path:
     rel_path = Path(filename)
+    if rel_path.is_absolute():
+        return rel_path
     parts = rel_path.parts
     if samples_root is not None and parts and parts[0] == "samples":
         return samples_root.joinpath(*parts[1:])
@@ -106,6 +104,10 @@ def generate_nuscenes_index(
     data_root = Path(data_root)
     component_roots = _path_roots(roots)
     table_root = _require_dir(component_roots.get("tables", data_root / version), "roots.tables")
+    data_blob_root = _require_dir(component_roots.get("data", data_root), "roots.data")
+    samples_root = component_roots.get("samples")
+    if samples_root is not None:
+        _require_dir(samples_root, "roots.samples")
 
     scenes = {item["token"]: item for item in _read_json(table_root / "scene.json")}
     samples = {item["token"]: item for item in _read_json(table_root / "sample.json")}
@@ -136,7 +138,7 @@ def generate_nuscenes_index(
             {
                 "channel": channel,
                 "frame_id": str(item.get("timestamp", item["token"])),
-                "image": _resolve_index_data_path(item["filename"]),
+                "image": str(_resolve_data_path(data_blob_root, samples_root, item["filename"]).resolve()),
                 "camera_intrinsics": np.array(calib["camera_intrinsic"], dtype=np.float32).tolist(),
                 "camera_pose": camera_to_global.astype(np.float32).tolist(),
                 "sample_token": item["sample_token"],
@@ -222,7 +224,7 @@ class NuScenesPi3XDataset(BaseDataset):
         target_width, target_height = _as_resolution(resolution)
         for idx in idxs:
             frame = frames[idx]
-            image_path = _resolve_data_path(self.data_blob_root, self.samples_root, frame["image"])
+            image_path = Path(frame["image"])
             img = _read_rgb_image(image_path)
             if img is None:
                 print(f"Warning: Failed to load image: {image_path}", flush=True)
