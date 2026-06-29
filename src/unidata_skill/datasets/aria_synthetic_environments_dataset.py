@@ -134,13 +134,13 @@ def _find_column(row: dict[str, str], candidates: tuple[str, ...]) -> float | No
 
 
 def _pose_from_row(row: dict[str, str]) -> np.ndarray | None:
-    tx = _find_column(row, ("tx", "t_x", "x", "translation_x", "device_position_x", "position_x"))
-    ty = _find_column(row, ("ty", "t_y", "y", "translation_y", "device_position_y", "position_y"))
-    tz = _find_column(row, ("tz", "t_z", "z", "translation_z", "device_position_z", "position_z"))
-    qx = _find_column(row, ("qx", "q_x", "quat_x", "quaternion_x", "device_quaternion_x"))
-    qy = _find_column(row, ("qy", "q_y", "quat_y", "quaternion_y", "device_quaternion_y"))
-    qz = _find_column(row, ("qz", "q_z", "quat_z", "quaternion_z", "device_quaternion_z"))
-    qw = _find_column(row, ("qw", "q_w", "quat_w", "quaternion_w", "device_quaternion_w"))
+    tx = _find_column(row, ("tx", "t_x", "x", "translation_x", "device_position_x", "position_x", "tx_world_device"))
+    ty = _find_column(row, ("ty", "t_y", "y", "translation_y", "device_position_y", "position_y", "ty_world_device"))
+    tz = _find_column(row, ("tz", "t_z", "z", "translation_z", "device_position_z", "position_z", "tz_world_device"))
+    qx = _find_column(row, ("qx", "q_x", "quat_x", "quaternion_x", "device_quaternion_x", "qx_world_device"))
+    qy = _find_column(row, ("qy", "q_y", "quat_y", "quaternion_y", "device_quaternion_y", "qy_world_device"))
+    qz = _find_column(row, ("qz", "q_z", "quat_z", "quaternion_z", "device_quaternion_z", "qz_world_device"))
+    qw = _find_column(row, ("qw", "q_w", "quat_w", "quaternion_w", "device_quaternion_w", "qw_world_device"))
     if None not in (tx, ty, tz, qx, qy, qz, qw):
         return _pose_from_translation_quaternion(tx, ty, tz, qx, qy, qz, qw)
 

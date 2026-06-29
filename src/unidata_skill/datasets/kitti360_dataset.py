@@ -38,12 +38,15 @@ def _parse_matrix_line(line: str, path: Path, line_no: int) -> tuple[str, np.nda
     if not line.strip() or ":" not in line:
         return None
     name, values = line.split(":", 1)
-    floats = _parse_float_tokens(values.split(), path, line_no)
+    try:
+        floats = _parse_float_tokens(values.split(), path, line_no)
+    except ValueError:
+        return None
     if len(floats) == 9:
         return name.strip(), np.array(floats, dtype=np.float32).reshape(3, 3)
     if len(floats) == 12:
         return name.strip(), np.array(floats, dtype=np.float32).reshape(3, 4)
-    raise ValueError(f"{path}:{line_no}: expected 9 or 12 numeric values for {name.strip()!r}, got {len(floats)}")
+    return None
 
 
 def _parse_numeric_record(line: str, path: Path, line_no: int) -> tuple[str, np.ndarray] | None:
@@ -51,7 +54,11 @@ def _parse_numeric_record(line: str, path: Path, line_no: int) -> tuple[str, np.
     if not line.strip() or ":" not in line:
         return None
     name, values = line.split(":", 1)
-    return name.strip(), np.array(_parse_float_tokens(values.split(), path, line_no), dtype=np.float32)
+    try:
+        floats = _parse_float_tokens(values.split(), path, line_no)
+    except ValueError:
+        return None
+    return name.strip(), np.array(floats, dtype=np.float32)
 
 
 def _parse_pose_line(line: str, path: Path, line_no: int) -> tuple[int, np.ndarray] | None:
@@ -109,20 +116,33 @@ def load_perspective_calibration(calibration_root: Path) -> dict[str, dict[str, 
     path = calibration_root / "perspective.txt"
     records: dict[str, np.ndarray] = {}
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        parsed = _parse_matrix_line(line, path, line_no)
-        if parsed is not None:
-            records[parsed[0]] = parsed[1]
+        numeric = _parse_numeric_record(line, path, line_no)
+        if numeric is not None:
+            records[numeric[0]] = numeric[1]
 
     intrinsics: dict[str, np.ndarray] = {}
     projections: dict[str, np.ndarray] = {}
     rectifications: dict[str, np.ndarray] = {}
-    for camera_id, key in (("image_00", "P_rect_00"), ("image_01", "P_rect_01")):
-        if key not in records:
+    for camera_id, suffix in (("image_00", "00"), ("image_01", "01")):
+        projection_key = f"P_rect_{suffix}"
+        projection = records.get(projection_key)
+        if projection is None or projection.size != 12:
             continue
-        projections[camera_id] = records[key].astype(np.float32)
-        intrinsics[camera_id] = records[key][:3, :3].astype(np.float32)
-        rect_key = f"R_rect_{camera_id[-2:]}"
-        rectifications[camera_id] = records.get(rect_key, records.get("R_rect_00", np.eye(3, dtype=np.float32))).astype(np.float32)
+        projections[camera_id] = projection.reshape(3, 4).astype(np.float32)
+
+        intrinsics_key = f"K_{suffix}"
+        intrinsics_record = records.get(intrinsics_key)
+        if intrinsics_record is not None and intrinsics_record.size == 9:
+            intrinsics[camera_id] = intrinsics_record.reshape(3, 3).astype(np.float32)
+        else:
+            intrinsics[camera_id] = projections[camera_id][:3, :3].astype(np.float32)
+
+        rect_key = f"R_rect_{suffix}"
+        rectification = records.get(rect_key)
+        if rectification is not None and rectification.size == 9:
+            rectifications[camera_id] = rectification.reshape(3, 3).astype(np.float32)
+        else:
+            rectifications[camera_id] = np.eye(3, dtype=np.float32)
     return {"intrinsics": intrinsics, "projections": projections, "rectifications": rectifications}
 
 
@@ -139,18 +159,38 @@ def _load_numeric_records(path: Path) -> dict[str, np.ndarray]:
     return records
 
 
+def _load_plain_numeric_matrix(path: Path) -> np.ndarray | None:
+    values = []
+    for token in path.read_text(encoding="utf-8").replace(",", " ").split():
+        try:
+            values.append(float(token))
+        except ValueError:
+            continue
+    array = np.asarray(values, dtype=np.float32)
+    if array.size == 12:
+        transform = np.eye(4, dtype=np.float32)
+        transform[:3, :] = array.reshape(3, 4)
+        return transform
+    if array.size == 16:
+        return array.reshape(4, 4).astype(np.float32)
+    return None
+
+
 def load_cam0_to_velodyne(calibration_root: Path) -> np.ndarray:
     path = calibration_root / "calib_cam_to_velo.txt"
     if not path.is_file():
         raise FileNotFoundError(f"calib_cam_to_velo.txt not found: {path}")
     records = _load_numeric_records(path)
-    if "R" not in records or "T" not in records:
-        raise ValueError(f"{path}: expected R and T records")
-    if records["R"].size != 9 or records["T"].size != 3:
-        raise ValueError(f"{path}: expected R with 9 values and T with 3 values")
-    transform = np.eye(4, dtype=np.float32)
-    transform[:3, :3] = records["R"].reshape(3, 3)
-    transform[:3, 3] = records["T"].reshape(3)
+    if "R" in records and "T" in records:
+        if records["R"].size != 9 or records["T"].size != 3:
+            raise ValueError(f"{path}: expected R with 9 values and T with 3 values")
+        transform = np.eye(4, dtype=np.float32)
+        transform[:3, :3] = records["R"].reshape(3, 3)
+        transform[:3, 3] = records["T"].reshape(3)
+    else:
+        transform = _load_plain_numeric_matrix(path)
+        if transform is None:
+            raise ValueError(f"{path}: expected R/T records or a plain 3x4/4x4 numeric transform")
     if not np.isfinite(transform).all():
         raise ValueError(f"{path}: calibration contains non-finite values")
     return transform
@@ -242,8 +282,6 @@ def resolve_lidar_root(data_root: Path, component_roots: dict[str, Path], option
     if lidar_root is not None:
         _require_dir(lidar_root, "roots.lidar")
     return lidar_root
-
-    return intrinsics
 
 
 def load_cam0_to_world(poses_root: Path, sequence: str) -> dict[int, np.ndarray]:
