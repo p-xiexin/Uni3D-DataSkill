@@ -74,6 +74,100 @@ lab_dataset/
 
 如果是多视图训练，核心是 `frames.jsonl + cameras + poses + depth/mask + pairs`。不要把实验室格式设计成另一个完整数据湖。
 
+### 1.1 同名点匹配标注算法 Pipeline 设计
+
+同名点标注工具的输入不从图像特征开始，而是从已经对齐的
+`image + calib + pose + depth` 开始。这样每个有效像素都可以先还原成
+三维点，再投影到另一张图里，得到几何意义上的同名点候选。
+
+当前 demo 对应的最小 pipeline 是：
+
+```text
+source image/depth/K/pose
+target image/depth/K/pose
+  -> source depth 反投影到 3D
+  -> source 3D 点投影到 target image
+  -> target depth 反投影到 3D
+  -> target 3D 点投影回 source image
+  -> reciprocal check
+  -> depth + 3D distance filter
+  -> matches.npy + visualization
+```
+
+对源图像中的一个像素 $p_s=(u_s, v_s, 1)^T$，先读取深度
+$z_s = D_s(u_s, v_s)$，用内参 $K_s$ 反投影到源相机坐标：
+
+$$
+X_s^{cam} = z_s K_s^{-1} p_s
+$$
+
+再用源相机位姿 $T_s^{world \leftarrow cam}$ 转到世界坐标：
+
+$$
+X^{world} = T_s^{world \leftarrow cam}
+\begin{bmatrix}
+X_s^{cam} \\
+1
+\end{bmatrix}
+$$
+
+把这个世界点投影到目标相机。目标相机位姿取逆得到
+$T_t^{cam \leftarrow world}$：
+
+$$
+\tilde{p}_t =
+K_t \,
+T_t^{cam \leftarrow world}
+\begin{bmatrix}
+X^{world} \\
+1
+\end{bmatrix}
+,\qquad
+p_t =
+\left(
+\frac{\tilde{p}_{t,x}}{\tilde{p}_{t,z}},
+\frac{\tilde{p}_{t,y}}{\tilde{p}_{t,z}}
+\right)
+$$
+
+为了减少遮挡和量化误差带来的错误匹配，不只做单向投影。工具会从
+source 投到 target，也从 target 投回 source，只保留互相指回来的像素：
+
+$$
+M_{s \to t}(p_s)=p_t,\quad
+M_{t \to s}(p_t)=p_s
+$$
+
+满足上式的点对才进入候选同名点集合。之后再做两个简单过滤：
+
+$$
+D_s(p_s) > d_{min}, \qquad D_t(p_t) > d_{min}
+$$
+
+以及在同一个相机坐标系下比较两边 depth 还原出的三维点距离：
+
+$$
+\left\|
+T_t^{cam \leftarrow world} X_s^{world}
+-
+T_t^{cam \leftarrow world} X_t^{world}
+\right\|_2
+< \tau
+$$
+
+最后保存的标注结果应该至少包含：
+
+- `source_xy`：源图像像素坐标。
+- `target_xy`：目标图像像素坐标。
+- `source_linear` / `target_linear`：展平后的像素索引，方便训练采样。
+- `distance_m`：几何过滤后的三维距离。
+- `source_frame` / `target_frame`：图像、depth、内参、位姿来源。
+- `stats`：候选数量、有效 depth 数量、距离过滤后数量。
+
+这个 pipeline 的边界也要保持清楚：它生成的是几何一致的自动同名点候选，
+不是人工审核后的最终标注。后续正式工具需要在此基础上增加交互式检查、
+删除/补点、批量序列处理、标注格式版本和质量报告。
+
 ---
 
 ## 2. Agent 总体架构
@@ -1989,4 +2083,3 @@ Wayve：本 Skill 按 WayveScenes101 处理；如用户指其他 Wayve 数据，
 | P3 | 3D-FRONT / HM3D / Replica / Objaverse-XL | mesh/asset-first，需渲染与过滤 |
 | P4 | BDD100K / OpenVid-1M | 缺少 GT geometry，适合弱监督/预训练 |
 | P4 | OpenSatMap / SEED-MAP / 3D-GloBFP | 遥感/地图专用，不属于常规三维前馈数据 |
-

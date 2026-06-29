@@ -145,6 +145,28 @@ sample index: 0
 sample views: 8
 ```
 
+## MAST3R 风格同名点构建工具
+
+当前同名匹配点标注工具已经有一个独立的几何批处理 builder。它从生成好的
+KITTI-style `.npy` 索引中读取成对的 image、depth、camera intrinsics 和
+camera pose，先把有效 depth 像素反投影到 3D，再投影到另一帧图像中，
+保留双向互相指回的 reciprocal matches，并用 depth 与 3D 距离继续过滤。
+最后会写出 MAST3R 风格的 correspondence 数组，并为每个成功 pair 全量保存
+可视化图。
+
+```bash
+python tools/build_mast3r_correspondences.py \
+  --index-file /path/to/kitti_raw_depth_index.npy \
+  --output-dir outputs/mast3r_correspondences \
+  --n-corres 8192 \
+  --nneg 0.5 \
+  --max-gap 5
+```
+
+每个 `.npz` 包含 `corres1`、`corres2`、`valid_corres` 和 `distance_m`。
+`manifest.jsonl` 记录 `.npz` 路径、可视化路径、source/target frame metadata
+和匹配数量。旧的 `tools/kitti_npy_match_cropping_demo.py` 仍保留为单 pair 调试 demo。
+
 ## 数据集目录结构
 
 每个 dataloader 直接读取对应数据集的官方或转换后目录结构。KITTI-360 示例：

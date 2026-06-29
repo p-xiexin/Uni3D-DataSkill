@@ -153,6 +153,30 @@ sample index: 0
 sample views: 8
 ```
 
+## MAST3R-Style Correspondence Builder
+
+The current annotation-tool work is implemented as a standalone geometry-based
+builder. It reads paired image, depth, intrinsics, and pose records from a
+generated KITTI-style `.npy` index, back-projects valid depth pixels to 3D,
+reprojects them into another frame, keeps reciprocal matches, filters by depth
+and 3D distance, then writes MAST3R-style correspondence arrays plus a
+visualization for every successful pair.
+
+```bash
+python tools/build_mast3r_correspondences.py \
+  --index-file /path/to/kitti_raw_depth_index.npy \
+  --output-dir outputs/mast3r_correspondences \
+  --n-corres 8192 \
+  --nneg 0.5 \
+  --max-gap 5
+```
+
+Each saved `.npz` contains `corres1`, `corres2`, `valid_corres`, and
+`distance_m`. `manifest.jsonl` records the `.npz` path, visualization path,
+source/target frame metadata, and match counts. The older
+`tools/kitti_npy_match_cropping_demo.py` remains available as a single-pair
+debug demo.
+
 ## Dataset Layouts
 
 Each dataloader reads its own official or converted raw layout directly.
