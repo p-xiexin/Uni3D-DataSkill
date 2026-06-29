@@ -26,33 +26,15 @@ PLACEHOLDER_DEPTH_SOURCES = {
 }
 
 
+class PairSkip(RuntimeError):
+    pass
+
+
 def load_index(path: Path) -> dict[str, Any]:
     return np.load(path, allow_pickle=True).item()
 
 
-def select_dataset_config(configs: list[DatasetConfig], label: str | None) -> DatasetConfig:
-    if label is None:
-        if len(configs) != 1:
-            labels = ", ".join(config.label for config in configs)
-            raise ValueError(f"--label is required when config contains {len(configs)} datasets: {labels}")
-        return configs[0]
-    for config in configs:
-        if config.label == label:
-            return config
-    raise ValueError(f"label not found in config: {label}")
-
-
-def resolve_index_file(args: argparse.Namespace) -> Path:
-    if args.index_file is not None:
-        args.resolved_label = None
-        args.resolved_dataset = None
-        return args.index_file
-    if args.config is None:
-        raise ValueError("either --config or --index-file is required")
-
-    config = select_dataset_config(load_dataset_configs(args.config), args.label)
-    args.resolved_label = config.label
-    args.resolved_dataset = config.dataset
+def resolve_index_file(config: DatasetConfig) -> Path:
     index_file = config.options.get("index_file")
     if not index_file:
         raise ValueError(f"dataset config '{config.label}' does not define index_file")
@@ -261,7 +243,7 @@ def sample_negative_matches(
     valid1 = np.argwhere(depth1 > min_depth)
     valid2 = np.argwhere(depth2 > min_depth)
     if len(valid1) == 0 or len(valid2) == 0:
-        raise ValueError("no valid pixels for negatives")
+        raise PairSkip("no_valid_pixels_for_negatives")
 
     positive_source_linear = pixel_to_linear(positive_corres1, w1)
     positive_target_linear = pixel_to_linear(positive_corres2, w2)
@@ -287,11 +269,11 @@ def sample_negative_matches(
         attempts += 1
 
     if not neg1:
-        raise ValueError("could not sample negatives")
+        raise PairSkip("could_not_sample_negatives")
     out1 = np.concatenate(neg1, axis=0)[:count]
     out2 = np.concatenate(neg2, axis=0)[:count]
     if len(out1) < count:
-        raise ValueError(f"not enough negative matches: {len(out1)} < {count}")
+        raise PairSkip(f"not_enough_negative_matches:{len(out1)}<{count}")
     return out1.astype(np.int32), out2.astype(np.int32)
 
 
@@ -310,7 +292,7 @@ def build_mast3r_arrays(
     required_positive = max(min_positive, target_positive)
     available_positive = len(positives["corres1"])
     if available_positive < required_positive:
-        raise ValueError(f"positive_matches_below_threshold:{available_positive}<{required_positive}")
+        raise PairSkip(f"positive_matches_below_threshold:{available_positive}<{required_positive}")
 
     pos1, pos2, pos_dist = sample_positive_matches(positives, target_positive, rng)
     neg1, neg2 = sample_negative_matches(depth1, depth2, pos1, pos2, target_negative, min_depth, rng)
@@ -528,10 +510,8 @@ def process_pair(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build MAST3R-style correspondence pairs from an indexed RGB-D dataset.")
-    parser.add_argument("--config", type=Path, help="Dataset config JSON. The selected entry must define index_file.")
-    parser.add_argument("--label", help="Dataset label in --config. Required when config contains multiple datasets.")
-    parser.add_argument("--index-file", type=Path, help="Direct .npy index path. Overrides --config/--label.")
-    parser.add_argument("--output-dir", type=Path, help="Output directory. Defaults to outputs/mast3r_correspondences/<label-or-index-stem>.")
+    parser.add_argument("--config", type=Path, required=True, help="Dataset config JSON. Every entry must define index_file.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/mast3r_correspondences"))
     parser.add_argument("--sequence", default=None, help="Optional sequence_id to process. Defaults to every sequence.")
     parser.add_argument("--n-corres", type=int, default=8192)
     parser.add_argument("--nneg", type=float, default=0.5)
@@ -558,26 +538,23 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-viz-points must be positive")
 
 
-def main() -> int:
-    args = build_parser().parse_args()
-    validate_args(args)
-    rng = np.random.default_rng(args.seed)
-    index_file = resolve_index_file(args)
-    if args.output_dir is None:
-        output_name = args.resolved_label or index_file.stem
-        args.output_dir = Path("outputs") / "mast3r_correspondences" / sanitize_path_part(output_name)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+def build_for_config(config: DatasetConfig, args: argparse.Namespace, rng: np.random.Generator) -> dict[str, Any]:
+    index_file = resolve_index_file(config)
+    output_dir = args.output_dir / sanitize_path_part(config.label)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    run_args = argparse.Namespace(**vars(args))
+    run_args.output_dir = output_dir
     index = load_index(index_file)
     records = list(index.get("sequences", []))
     if args.sequence is not None:
         records = [record for record in records if str(record.get("sequence_id")) == args.sequence]
     if not records:
-        raise RuntimeError("no sequences selected")
+        raise RuntimeError(f"no sequences selected for dataset config '{config.label}'")
 
     planned_pairs = sum(count_sequence_pairs(len(list(record.get("frames", []))), args.max_gap) for record in records)
 
-    manifest_path = args.output_dir / "manifest.jsonl"
-    summary_path = args.output_dir / "summary.json"
+    manifest_path = output_dir / "manifest.jsonl"
+    summary_path = output_dir / "summary.json"
     skip_reasons: Counter[str] = Counter()
     positive_counts: list[int] = []
     total_pairs = 0
@@ -586,15 +563,15 @@ def main() -> int:
 
     with manifest_path.open("w", encoding="utf-8") as manifest_file:
         pair_iter = iter_selected_pairs(records, args.max_gap)
-        pair_iter = tqdm(pair_iter, total=planned_pairs, unit="pair", desc="building correspondences")
+        pair_iter = tqdm(pair_iter, total=planned_pairs, unit="pair", desc=f"{config.label}")
         for sequence_id, frames, source_idx, target_idx in pair_iter:
             total_pairs += 1
             try:
-                manifest, skip_reason, quality = process_pair(sequence_id, frames, source_idx, target_idx, args, rng)
-            except Exception as exc:
+                manifest, skip_reason, quality = process_pair(sequence_id, frames, source_idx, target_idx, run_args, rng)
+            except PairSkip as exc:
                 manifest = None
                 quality = None
-                skip_reason = type(exc).__name__ + ":" + str(exc)
+                skip_reason = str(exc)
             if manifest is None:
                 skip_reasons[str(skip_reason)] += 1
                 pair_iter.set_postfix(success=success_pairs, skipped=total_pairs - success_pairs)
@@ -608,10 +585,10 @@ def main() -> int:
 
     summary = {
         "config": str(args.config) if args.config is not None else None,
-        "label": args.resolved_label,
-        "dataset": args.resolved_dataset,
+        "label": config.label,
+        "dataset": config.dataset,
         "index_file": str(index_file),
-        "output_dir": str(args.output_dir),
+        "output_dir": str(output_dir),
         "total_pairs": total_pairs,
         "success_pairs": success_pairs,
         "skipped_pairs": total_pairs - success_pairs,
@@ -633,12 +610,34 @@ def main() -> int:
         },
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"total pairs: {total_pairs}")
-    print(f"success pairs: {success_pairs}")
-    print(f"visualizations saved: {visualizations_saved}")
-    print(f"manifest: {manifest_path}")
+    print(f"[{config.label}] total pairs: {total_pairs}")
+    print(f"[{config.label}] success pairs: {success_pairs}")
+    print(f"[{config.label}] visualizations saved: {visualizations_saved}")
+    print(f"[{config.label}] manifest: {manifest_path}")
+    print(f"[{config.label}] summary: {summary_path}")
+    return summary
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    validate_args(args)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(args.seed)
+    configs = load_dataset_configs(args.config)
+    summaries = [build_for_config(config, args, rng) for config in configs]
+    top_summary = {
+        "config": str(args.config),
+        "output_dir": str(args.output_dir),
+        "datasets": summaries,
+        "total_pairs": int(sum(summary["total_pairs"] for summary in summaries)),
+        "success_pairs": int(sum(summary["success_pairs"] for summary in summaries)),
+        "skipped_pairs": int(sum(summary["skipped_pairs"] for summary in summaries)),
+        "visualizations_saved": int(sum(summary["visualizations_saved"] for summary in summaries)),
+    }
+    summary_path = args.output_dir / "summary.json"
+    summary_path.write_text(json.dumps(top_summary, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     print(f"summary: {summary_path}")
-    return 0 if success_pairs else 2
+    return 0 if top_summary["success_pairs"] else 2
 
 
 if __name__ == "__main__":
