@@ -106,13 +106,27 @@ def bilinear_sample(image: np.ndarray, xy: np.ndarray) -> np.ndarray:
 
 def iter_project_rays(
     rays_img: np.ndarray,
+    valid_ray_img: np.ndarray,
     pts3d_norm: np.ndarray,
     p_init: np.ndarray,
     max_iter: int,
     lambda_init: float,
     convergence_thresh: float,
+    max_step: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     height, width = rays_img.shape[:2]
+    if max_iter <= 0:
+        valid_init = (
+            np.isfinite(pts3d_norm).all(axis=-1)
+            & (np.linalg.norm(pts3d_norm, axis=-1) > 0.0)
+            & np.isfinite(p_init).all(axis=-1)
+            & (p_init[:, 0] >= 0.0)
+            & (p_init[:, 0] <= width - 1.0)
+            & (p_init[:, 1] >= 0.0)
+            & (p_init[:, 1] <= height - 1.0)
+        )
+        return p_init.astype(np.float32).copy(), valid_init
+
     gx_img, gy_img = image_gradient(rays_img)
     p = p_init.astype(np.float32).copy()
     valid = (
@@ -123,7 +137,9 @@ def iter_project_rays(
 
     for _ in range(max_iter):
         in_bounds = (p[:, 0] >= 0.0) & (p[:, 0] <= width - 1.0) & (p[:, 1] >= 0.0) & (p[:, 1] <= height - 1.0)
-        active = valid & in_bounds
+        rounded_x = np.rint(np.clip(p[:, 0], 0.0, width - 1.0)).astype(np.int64)
+        rounded_y = np.rint(np.clip(p[:, 1], 0.0, height - 1.0)).astype(np.int64)
+        active = valid & in_bounds & valid_ray_img[rounded_y, rounded_x]
         if not np.any(active):
             break
 
@@ -143,14 +159,27 @@ def iter_project_rays(
         delta = np.zeros((int(active.sum()), 2), dtype=np.float32)
         delta[solvable, 0] = (-jtj_11[solvable] * jtr_0[solvable] + jtj_01[solvable] * jtr_1[solvable]) / det[solvable]
         delta[solvable, 1] = (jtj_01[solvable] * jtr_0[solvable] - jtj_00[solvable] * jtr_1[solvable]) / det[solvable]
+        step_norm = np.linalg.norm(delta, axis=1)
+        too_large = step_norm > max_step
+        if np.any(too_large):
+            delta[too_large] *= (max_step / step_norm[too_large])[:, None]
 
         active_indices = np.nonzero(active)[0]
-        p[active_indices] += delta
+        p_next = p[active_indices] + delta
+        p_next[:, 0] = np.clip(p_next[:, 0], 0.0, width - 1.0)
+        p_next[:, 1] = np.clip(p_next[:, 1], 0.0, height - 1.0)
+        rays_next = bilinear_sample(rays_img, p_next)
+        residual_next = rays_next - pts3d_norm[active]
+        improves = np.sum(residual_next * residual_next, axis=1) <= np.sum(residual * residual, axis=1)
+        p[active_indices[improves]] = p_next[improves]
         valid[active_indices[~np.isfinite(delta).all(axis=1)]] = False
         if float(np.max(np.linalg.norm(delta[solvable], axis=1), initial=0.0)) < convergence_thresh:
             break
 
+    rounded_x = np.rint(np.clip(p[:, 0], 0.0, width - 1.0)).astype(np.int64)
+    rounded_y = np.rint(np.clip(p[:, 1], 0.0, height - 1.0)).astype(np.int64)
     valid &= (p[:, 0] >= 0.0) & (p[:, 0] <= width - 1.0) & (p[:, 1] >= 0.0) & (p[:, 1] <= height - 1.0)
+    valid &= valid_ray_img[rounded_y, rounded_x]
     return p, valid
 
 
@@ -185,9 +214,11 @@ def match_iterative_proj_without_descriptors(
     max_iter: int,
     lambda_init: float,
     convergence_thresh: float,
+    max_step: float,
     idx_target_to_source_init: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     height, width, _ = target_points_in_source.shape
+    valid_ray_img = (source_depth > min_depth) & np.isfinite(source_points).all(axis=-1)
     rays_img, pts3d_norm, p_init = prep_for_iter_proj(
         source_points,
         target_points_in_source,
@@ -196,11 +227,13 @@ def match_iterative_proj_without_descriptors(
     )
     p1_float, valid_ray_proj = iter_project_rays(
         rays_img,
+        valid_ray_img,
         pts3d_norm,
         p_init,
         max_iter,
         lambda_init,
         convergence_thresh,
+        max_step,
     )
     p1 = np.rint(p1_float).astype(np.int64)
 
@@ -216,6 +249,7 @@ def match_iterative_proj_without_descriptors(
     positive_target = (target_depth.reshape(-1) > min_depth) & (target_flat[:, 2] > min_depth)
 
     valid_proj = valid_ray_proj & in_bounds & finite_target & positive_target
+    n_after_projection = int(valid_proj.sum())
     src_x_valid = src_x[valid_proj]
     src_y_valid = src_y[valid_proj]
     target_x_valid = target_x[valid_proj]
@@ -223,6 +257,7 @@ def match_iterative_proj_without_descriptors(
     target_points_valid = target_flat[valid_proj]
 
     positive_source = source_depth[src_y_valid, src_x_valid] > min_depth
+    n_after_source_depth = int(positive_source.sum())
     src_x_valid = src_x_valid[positive_source]
     src_y_valid = src_y_valid[positive_source]
     target_x_valid = target_x_valid[positive_source]
@@ -232,6 +267,7 @@ def match_iterative_proj_without_descriptors(
     source_points_valid = source_points[src_y_valid, src_x_valid]
     distances = np.linalg.norm(source_points_valid - target_points_valid, axis=1)
     valid_dist = np.isfinite(distances) & (distances < dist_thresh)
+    n_after_distance = int(valid_dist.sum())
 
     src_x_valid = src_x_valid[valid_dist]
     src_y_valid = src_y_valid[valid_dist]
@@ -249,6 +285,11 @@ def match_iterative_proj_without_descriptors(
         "distance_m": distances.astype(np.float32),
         "target_depth_in_source": target_points_valid[valid_dist, 2].astype(np.float32),
         "image_shape": np.asarray([height, width], dtype=np.int32),
+        "stats": {
+            "after_projection": n_after_projection,
+            "after_source_depth": n_after_source_depth,
+            "after_distance": n_after_distance,
+        },
     }
 
 
@@ -302,6 +343,7 @@ def find_depth_matches_matching_style(
     max_iter: int,
     lambda_init: float,
     convergence_thresh: float,
+    max_step: float,
     bidirectional_px: float,
     zbuffer_eps: float,
 ) -> dict[str, np.ndarray]:
@@ -319,8 +361,11 @@ def find_depth_matches_matching_style(
         max_iter,
         lambda_init,
         convergence_thresh,
+        max_step,
     )
+    forward_before_zbuffer = len(forward["source_xy"])
     forward = zbuffer_filter(forward, eps=zbuffer_eps)
+    forward_after_zbuffer = len(forward["source_xy"])
 
     source_points_in_target = transform_points(source_points, pose_src, pose_dst)
     reverse = match_iterative_proj_without_descriptors(
@@ -334,9 +379,22 @@ def find_depth_matches_matching_style(
         max_iter,
         lambda_init,
         convergence_thresh,
+        max_step,
     )
+    reverse_before_zbuffer = len(reverse["source_xy"])
     reverse = zbuffer_filter(reverse, eps=zbuffer_eps)
-    return bidirectional_filter(forward, reverse, depth_src.shape[1], bidirectional_px)
+    reverse_after_zbuffer = len(reverse["source_xy"])
+    result = bidirectional_filter(forward, reverse, depth_src.shape[1], bidirectional_px)
+    result["stats"] = {
+        "forward": forward.get("stats", {}),
+        "reverse": reverse.get("stats", {}),
+        "forward_before_zbuffer": forward_before_zbuffer,
+        "forward_after_zbuffer": forward_after_zbuffer,
+        "reverse_before_zbuffer": reverse_before_zbuffer,
+        "reverse_after_zbuffer": reverse_after_zbuffer,
+        "after_bidirectional": len(result["source_xy"]),
+    }
+    return result
 
 
 def visualize_matches(
@@ -386,10 +444,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-frame", type=int, default=1)
     parser.add_argument("--dist-thresh", type=float, default=0.25)
     parser.add_argument("--min-depth", type=float, default=0.1)
-    parser.add_argument("--max-iter", type=int, default=10)
+    parser.add_argument("--max-iter", type=int, default=3)
     parser.add_argument("--lambda-init", type=float, default=1e-4)
     parser.add_argument("--convergence-thresh", type=float, default=1e-3)
-    parser.add_argument("--bidirectional-px", type=float, default=1.5)
+    parser.add_argument("--max-step", type=float, default=1.0)
+    parser.add_argument("--bidirectional-px", type=float, default=3.0)
     parser.add_argument("--zbuffer-eps", type=float, default=1e-3)
     parser.add_argument("--viz-stride", type=int, default=50)
     parser.add_argument("--max-points", type=int, default=3000)
@@ -405,10 +464,10 @@ def main() -> int:
     frame_src = frames[args.source_frame]
     frame_dst = frames[args.target_frame]
 
-    image_src_path = Path(frame_src["image_path"])
-    image_dst_path = Path(frame_dst["image_path"])
-    depth_src_path = Path(frame_src["depth_path"])
-    depth_dst_path = Path(frame_dst["depth_path"])
+    image_src_path = Path(frame_src["image"])
+    image_dst_path = Path(frame_dst["image"])
+    depth_src_path = Path(frame_src["depth"])
+    depth_dst_path = Path(frame_dst["depth"])
 
     image_src = read_rgb(image_src_path)
     image_dst = read_rgb(image_dst_path)
@@ -431,6 +490,7 @@ def main() -> int:
         args.max_iter,
         args.lambda_init,
         args.convergence_thresh,
+        args.max_step,
         args.bidirectional_px,
         args.zbuffer_eps,
     )
@@ -444,6 +504,7 @@ def main() -> int:
             "max_iter": np.asarray(args.max_iter, dtype=np.int32),
             "lambda_init": np.asarray(args.lambda_init, dtype=np.float32),
             "convergence_thresh": np.asarray(args.convergence_thresh, dtype=np.float32),
+            "max_step": np.asarray(args.max_step, dtype=np.float32),
             "bidirectional_px": np.asarray(args.bidirectional_px, dtype=np.float32),
             "zbuffer_eps": np.asarray(args.zbuffer_eps, dtype=np.float32),
             "matching_style": "matching.py_iter_proj_without_descriptors_bidirectional_zbuffer",
@@ -459,6 +520,7 @@ def main() -> int:
     print(f"source: {frame_src.get('frame_id')} {image_src_path}")
     print(f"target: {frame_dst.get('frame_id')} {image_dst_path}")
     print(f"matches: {len(matches['source_xy'])}")
+    print(f"stats: {matches['stats']}")
     print(f"visualized: {visualized}")
     print(f"saved matches: {args.output}")
     print(f"saved visualization: {args.viz_output}")

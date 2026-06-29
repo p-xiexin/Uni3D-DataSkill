@@ -195,10 +195,10 @@ def main() -> int:
 
     frame_src = frames[args.source_frame]
     frame_dst = frames[args.target_frame]
-    image_src_path = Path(frame_src["image_path"])
-    image_dst_path = Path(frame_dst["image_path"])
-    depth_src_path = Path(frame_src["depth_path"])
-    depth_dst_path = Path(frame_dst["depth_path"])
+    image_src_path = Path(frame_src["image"])
+    image_dst_path = Path(frame_dst["image"])
+    depth_src_path = Path(frame_src["depth"])
+    depth_dst_path = Path(frame_dst["depth"])
 
     image_src = read_rgb(image_src_path)
     image_dst = read_rgb(image_dst_path)
