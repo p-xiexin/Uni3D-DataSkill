@@ -15,6 +15,10 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cropping import extract_correspondences_from_pts3d
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from unidata_skill.cli import _coerce_index_kwargs, _loader_spec
+from unidata_skill.config import DatasetConfig, load_dataset_configs
+
 
 PLACEHOLDER_DEPTH_SOURCES = {
     "placeholder_missing_dense_depth",
@@ -24,6 +28,50 @@ PLACEHOLDER_DEPTH_SOURCES = {
 
 def load_index(path: Path) -> dict[str, Any]:
     return np.load(path, allow_pickle=True).item()
+
+
+def select_dataset_config(configs: list[DatasetConfig], label: str | None) -> DatasetConfig:
+    if label is None:
+        if len(configs) != 1:
+            labels = ", ".join(config.label for config in configs)
+            raise ValueError(f"--label is required when config contains {len(configs)} datasets: {labels}")
+        return configs[0]
+    for config in configs:
+        if config.label == label:
+            return config
+    raise ValueError(f"label not found in config: {label}")
+
+
+def resolve_index_file(args: argparse.Namespace) -> Path:
+    if args.index_file is not None:
+        args.resolved_label = None
+        args.resolved_dataset = None
+        return args.index_file
+    if args.config is None:
+        raise ValueError("either --config or --index-file is required")
+
+    config = select_dataset_config(load_dataset_configs(args.config), args.label)
+    args.resolved_label = config.label
+    args.resolved_dataset = config.dataset
+    index_file = config.options.get("index_file")
+    if not index_file:
+        raise ValueError(f"dataset config '{config.label}' does not define index_file")
+    index_path = Path(index_file)
+    if index_path.suffix != ".npy":
+        raise ValueError(f"index_file must end with .npy: {index_path}")
+    if index_path.is_file():
+        return index_path
+
+    spec = _loader_spec(config.dataset)
+    index_builder = spec.get("index_builder")
+    if index_builder is None:
+        raise RuntimeError(f"dataset '{config.dataset}' does not define an index builder")
+    print(f"index file not found, rebuilding: {index_path}", flush=True)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_builder(output_path=index_path, **_coerce_index_kwargs(config))
+    if not index_path.is_file():
+        raise RuntimeError(f"index builder did not create index_file: {index_path}")
+    return index_path
 
 
 def read_rgb(path: Path) -> np.ndarray:
@@ -480,8 +528,10 @@ def process_pair(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build MAST3R-style correspondence pairs from an indexed RGB-D dataset.")
-    parser.add_argument("--index-file", type=Path, required=True)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--config", type=Path, help="Dataset config JSON. The selected entry must define index_file.")
+    parser.add_argument("--label", help="Dataset label in --config. Required when config contains multiple datasets.")
+    parser.add_argument("--index-file", type=Path, help="Direct .npy index path. Overrides --config/--label.")
+    parser.add_argument("--output-dir", type=Path, help="Output directory. Defaults to outputs/mast3r_correspondences/<label-or-index-stem>.")
     parser.add_argument("--sequence", default=None, help="Optional sequence_id to process. Defaults to every sequence.")
     parser.add_argument("--n-corres", type=int, default=8192)
     parser.add_argument("--nneg", type=float, default=0.5)
@@ -511,9 +561,13 @@ def validate_args(args: argparse.Namespace) -> None:
 def main() -> int:
     args = build_parser().parse_args()
     validate_args(args)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
-    index = load_index(args.index_file)
+    index_file = resolve_index_file(args)
+    if args.output_dir is None:
+        output_name = args.resolved_label or index_file.stem
+        args.output_dir = Path("outputs") / "mast3r_correspondences" / sanitize_path_part(output_name)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    index = load_index(index_file)
     records = list(index.get("sequences", []))
     if args.sequence is not None:
         records = [record for record in records if str(record.get("sequence_id")) == args.sequence]
@@ -553,7 +607,10 @@ def main() -> int:
             pair_iter.set_postfix(success=success_pairs, skipped=total_pairs - success_pairs)
 
     summary = {
-        "index_file": str(args.index_file),
+        "config": str(args.config) if args.config is not None else None,
+        "label": args.resolved_label,
+        "dataset": args.resolved_dataset,
+        "index_file": str(index_file),
         "output_dir": str(args.output_dir),
         "total_pairs": total_pairs,
         "success_pairs": success_pairs,

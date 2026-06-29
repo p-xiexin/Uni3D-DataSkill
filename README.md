@@ -164,8 +164,8 @@ visualization for every successful pair.
 
 ```bash
 python tools/build_mast3r_correspondences.py \
-  --index-file /path/to/kitti_raw_depth_index.npy \
-  --output-dir outputs/mast3r_correspondences \
+  --config dataset_config.local.json \
+  --label kitti_raw_depth_train \
   --n-corres 8192 \
   --nneg 0.5 \
   --max-gap 5
@@ -175,7 +175,8 @@ Each saved `.npz` contains `corres1`, `corres2`, `valid_corres`, and
 `distance_m`. `manifest.jsonl` records the `.npz` path, visualization path,
 source/target frame metadata, and match counts. The older
 `tools/kitti_npy_match_cropping_demo.py` remains available as a single-pair
-debug demo.
+debug demo. If the selected config entry's `index_file` does not exist, the
+builder rebuilds it before generating correspondences.
 
 ## Dataset Layouts
 
