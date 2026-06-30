@@ -170,14 +170,31 @@ python tools/build_mast3r_correspondences.py \
   --max-gap 5
 ```
 
-Each saved `.npz` contains `corres1`, `corres2`, `valid_corres`, and
-`distance_m`. `manifest.jsonl` records the `.npz` path, visualization path,
-source/target frame metadata, and match counts. The older
+Each saved `.npz` contains VGGT-style `tracks`, `track_vis_mask`, and
+`track_positive_mask` fields with shape `S=2`, plus compatibility fields
+`corres1`, `corres2`, `valid_corres`, and `distance_m`. `manifest.jsonl`
+records the `.npz` path, visualization path, source/target frame metadata, and
+match counts. The older
 `tools/kitti_npy_match_cropping_demo.py` remains available as a single-pair
 debug demo. The builder processes every dataset entry in the config. Each entry
 must define `index_file`; if that file does not exist, the builder rebuilds it
 before generating correspondences. Per-dataset outputs are written below a
 label-named subdirectory under `--output-dir`.
+
+For visual feature experiments, `tools/kitti_npy_feature_match_demo.py` finds
+GT geometric correspondences and image feature matches side by side, then draws
+them in one overlaid visualization. Geometry correspondences are rendered as
+dots; feature matches are rendered as short cross markers:
+
+```bash
+python tools/kitti_npy_feature_match_demo.py \
+  --index-file /path/to/index.npy \
+  --feature-method sift
+```
+
+`--feature-method` supports `geometry`, `sift`, `aliked`, `superpoint`, `sp`,
+and `lightglue_sift`. OpenCV SIFT is used for `sift`; ALIKED, SuperPoint, and
+LightGlue SIFT require the `lightglue` package.
 
 ## Dataset Layouts
 

@@ -317,6 +317,20 @@ def build_mast3r_arrays(
     }
 
 
+def add_vggt_track_arrays(arrays: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    track_positive_mask = arrays["valid_corres"].astype(bool)
+    tracks = np.stack((arrays["corres1"], arrays["corres2"]), axis=0).astype(np.float32)
+    track_vis_mask = np.stack((track_positive_mask, track_positive_mask), axis=0).astype(bool)
+    arrays.update(
+        {
+            "tracks": tracks,
+            "track_vis_mask": track_vis_mask,
+            "track_positive_mask": track_positive_mask,
+        }
+    )
+    return arrays
+
+
 def visualize_matches(
     image1: np.ndarray,
     image2: np.ndarray,
@@ -452,6 +466,7 @@ def process_pair(
         args.min_depth,
         rng,
     )
+    arrays = add_vggt_track_arrays(arrays)
 
     image1 = read_rgb(image1_path)
     image2 = read_rgb(image2_path)
@@ -475,6 +490,8 @@ def process_pair(
         target_frame_id=np.asarray(target_id),
         source_image=np.asarray(str(image1_path)),
         target_image=np.asarray(str(image2_path)),
+        frame_ids=np.asarray([source_id, target_id]),
+        image_paths=np.asarray([str(image1_path), str(image2_path)]),
         image_shape1=np.asarray(depth1.shape, dtype=np.int32),
         image_shape2=np.asarray(depth2.shape, dtype=np.int32),
         n_corres=np.asarray(args.n_corres, dtype=np.int32),
@@ -498,6 +515,7 @@ def process_pair(
         "target_frame_id": target_id,
         "positive_stats": positives["stats"],
         "visualized": visualized,
+        "track_shape": list(arrays["tracks"].shape),
     }
     quality = {
         "available_positive": int(len(positives["corres1"])),

@@ -162,12 +162,28 @@ python tools/build_mast3r_correspondences.py \
   --max-gap 5
 ```
 
-每个 `.npz` 包含 `corres1`、`corres2`、`valid_corres` 和 `distance_m`。
-`manifest.jsonl` 记录 `.npz` 路径、可视化路径、source/target frame metadata
-和匹配数量。旧的 `tools/kitti_npy_match_cropping_demo.py` 仍保留为单 pair 调试 demo。
+每个 `.npz` 包含 VGGT-style 的 `tracks`、`track_vis_mask` 和
+`track_positive_mask` 字段，其中 `S=2`；同时保留兼容字段 `corres1`、
+`corres2`、`valid_corres` 和 `distance_m`。`manifest.jsonl` 记录 `.npz`
+路径、可视化路径、source/target frame metadata 和匹配数量。旧的
+`tools/kitti_npy_match_cropping_demo.py` 仍保留为单 pair 调试 demo。
 builder 会处理 config 中的全部 dataset 条目。每个条目必须定义 `index_file`；
 如果该文件不存在，builder 会先重建 index，再生成 correspondences。每个数据集
 会按 label 写入 `--output-dir` 下的独立子目录。
+
+如果要做视觉特征实验，可以使用 `tools/kitti_npy_feature_match_demo.py`。
+它会同时计算 GT 几何同名点和图像特征匹配点，并绘制到同一张叠加可视化图中。
+几何同名点用散点绘制，特征匹配点用短十字线绘制：
+
+```bash
+python tools/kitti_npy_feature_match_demo.py \
+  --index-file /path/to/index.npy \
+  --feature-method sift
+```
+
+`--feature-method` 支持 `geometry`、`sift`、`aliked`、`superpoint`、`sp`
+和 `lightglue_sift`。`sift` 使用 OpenCV SIFT；ALIKED、SuperPoint 和
+LightGlue SIFT 需要安装 `lightglue` 包。
 
 ## 数据集目录结构
 
