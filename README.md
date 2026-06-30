@@ -181,10 +181,9 @@ must define `index_file`; if that file does not exist, the builder rebuilds it
 before generating correspondences. Per-dataset outputs are written below a
 label-named subdirectory under `--output-dir`.
 
-For visual feature experiments, `tools/kitti_npy_feature_match_demo.py` finds
-GT geometric correspondences and image feature matches side by side, then draws
-them in one overlaid visualization. Geometry correspondences are rendered as
-dots; feature matches are rendered as short cross markers:
+For visual feature experiments, `tools/kitti_npy_feature_match_demo.py` is a
+separate image-feature matching demo. It does not run the GT geometry matcher;
+feature matches are rendered as short cross markers:
 
 ```bash
 python tools/kitti_npy_feature_match_demo.py \
@@ -192,9 +191,12 @@ python tools/kitti_npy_feature_match_demo.py \
   --feature-method sift
 ```
 
-`--feature-method` supports `geometry`, `sift`, `aliked`, `superpoint`, `sp`,
-and `lightglue_sift`. OpenCV SIFT is used for `sift`; ALIKED, SuperPoint, and
-LightGlue SIFT require the `lightglue` package.
+`--feature-method` supports `sift`, `aliked`, `superpoint`, `sp`, and
+`lightglue_sift`. OpenCV SIFT is used for `sift`; ALIKED, SuperPoint, and
+LightGlue SIFT require the `lightglue` package. Feature matches are filtered by
+RANSAC by default (`--outlier-filter fundamental`). Add `--depth-filter` to
+also reject matches whose projected source depth is inconsistent with the
+target depth map.
 
 ## Dataset Layouts
 

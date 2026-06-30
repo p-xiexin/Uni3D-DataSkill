@@ -172,8 +172,8 @@ builder 会处理 config 中的全部 dataset 条目。每个条目必须定义 
 会按 label 写入 `--output-dir` 下的独立子目录。
 
 如果要做视觉特征实验，可以使用 `tools/kitti_npy_feature_match_demo.py`。
-它会同时计算 GT 几何同名点和图像特征匹配点，并绘制到同一张叠加可视化图中。
-几何同名点用散点绘制，特征匹配点用短十字线绘制：
+这是一个独立的 image-feature matching demo，不运行 GT 几何同名点逻辑；
+特征匹配点用短十字线绘制：
 
 ```bash
 python tools/kitti_npy_feature_match_demo.py \
@@ -181,9 +181,11 @@ python tools/kitti_npy_feature_match_demo.py \
   --feature-method sift
 ```
 
-`--feature-method` 支持 `geometry`、`sift`、`aliked`、`superpoint`、`sp`
+`--feature-method` 支持 `sift`、`aliked`、`superpoint`、`sp`
 和 `lightglue_sift`。`sift` 使用 OpenCV SIFT；ALIKED、SuperPoint 和
-LightGlue SIFT 需要安装 `lightglue` 包。
+LightGlue SIFT 需要安装 `lightglue` 包。特征匹配默认会经过 RANSAC 外点过滤
+（`--outlier-filter fundamental`）；如果加上 `--depth-filter`，还会用
+source depth 投影到 target 后和 target depth map 做一致性检查。
 
 ## 数据集目录结构
 
