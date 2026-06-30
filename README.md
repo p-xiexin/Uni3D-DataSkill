@@ -195,8 +195,8 @@ python tools/kitti_npy_feature_match_demo.py \
 `lightglue_sift`. OpenCV SIFT is used for `sift`; ALIKED, SuperPoint, and
 LightGlue SIFT require the `lightglue` package. Feature matches are filtered by
 RANSAC by default (`--outlier-filter fundamental`). Add `--depth-filter` to
-also reject matches whose projected source depth is inconsistent with the
-target depth map.
+also reject matches with invalid, too-near, or too-far source/target depth
+values; tune the far cutoff with `--max-depth`.
 
 ## Dataset Layouts
 

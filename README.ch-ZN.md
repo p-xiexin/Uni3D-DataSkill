@@ -184,8 +184,9 @@ python tools/kitti_npy_feature_match_demo.py \
 `--feature-method` 支持 `sift`、`aliked`、`superpoint`、`sp`
 和 `lightglue_sift`。`sift` 使用 OpenCV SIFT；ALIKED、SuperPoint 和
 LightGlue SIFT 需要安装 `lightglue` 包。特征匹配默认会经过 RANSAC 外点过滤
-（`--outlier-filter fundamental`）；如果加上 `--depth-filter`，还会用
-source depth 投影到 target 后和 target depth map 做一致性检查。
+（`--outlier-filter fundamental`）；如果加上 `--depth-filter`，会过滤
+source/target 中 depth 无效、太近或太远的匹配点，远距离阈值由 `--max-depth`
+控制。
 
 ## 数据集目录结构
 

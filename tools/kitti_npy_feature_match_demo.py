@@ -199,8 +199,8 @@ def filter_outliers(
     }
 
 
-def require_frame_geometry(frame: dict, role: str) -> None:
-    for key in ("depth", "camera_intrinsics", "camera_pose"):
+def require_frame_depth(frame: dict, role: str) -> None:
+    for key in ("depth",):
         if key not in frame:
             raise KeyError(f"{role} frame is missing required key for depth filtering: {key}")
     if not Path(frame["depth"]).is_file():
@@ -212,21 +212,15 @@ def filter_by_depth(
     frame_src: dict,
     frame_dst: dict,
     min_depth: float,
-    depth_abs_thresh: float,
-    depth_rel_thresh: float,
-    reproj_thresh: float,
+    max_depth: float,
 ) -> tuple[dict[str, np.ndarray | str], dict[str, int | float | str]]:
-    require_frame_geometry(frame_src, "source")
-    require_frame_geometry(frame_dst, "target")
+    require_frame_depth(frame_src, "source")
+    require_frame_depth(frame_dst, "target")
 
     source_xy = np.asarray(feature_matches["source_xy"], dtype=np.float32)
     target_xy = np.asarray(feature_matches["target_xy"], dtype=np.float32)
     depth_src = read_kitti_depth(Path(frame_src["depth"]))
     depth_dst = read_kitti_depth(Path(frame_dst["depth"]))
-    intrinsics_src = np.asarray(frame_src["camera_intrinsics"], dtype=np.float32)
-    intrinsics_dst = np.asarray(frame_dst["camera_intrinsics"], dtype=np.float32)
-    pose_src = np.asarray(frame_src["camera_pose"], dtype=np.float32)
-    pose_dst = np.asarray(frame_dst["camera_pose"], dtype=np.float32)
 
     h1, w1 = depth_src.shape
     h2, w2 = depth_dst.shape
@@ -243,43 +237,27 @@ def filter_by_depth(
     source_depth = depth_src[safe_y1, safe_x1]
     target_depth = depth_dst[safe_y2, safe_x2]
 
-    ones = np.ones((len(source_xy), 1), dtype=np.float32)
-    source_h = np.concatenate((source_xy, ones), axis=1)
-    source_cam = (np.linalg.inv(intrinsics_src).astype(np.float32) @ source_h.T).T * source_depth[:, None]
-    source_world_h = (pose_src.astype(np.float64) @ np.concatenate((source_cam, ones), axis=1).T).T
-    target_cam = (np.linalg.inv(pose_dst.astype(np.float64)) @ source_world_h.T).T[:, :3]
-    projected_z = target_cam[:, 2].astype(np.float32)
-
-    projected_h = (intrinsics_dst.astype(np.float64) @ target_cam.T).T
-    projected_xy = (projected_h[:, :2] / projected_h[:, 2:3]).astype(np.float32)
-    reproj_error = np.linalg.norm(projected_xy - target_xy, axis=1).astype(np.float32)
-    depth_error = np.abs(target_depth - projected_z).astype(np.float32)
-    depth_limit = np.maximum(depth_abs_thresh, depth_rel_thresh * np.maximum(projected_z, min_depth)).astype(np.float32)
-
     keep = (
         inside
-        & np.isfinite(reproj_error)
-        & np.isfinite(depth_error)
+        & np.isfinite(source_depth)
+        & np.isfinite(target_depth)
         & (source_depth > min_depth)
         & (target_depth > min_depth)
-        & (projected_z > min_depth)
-        & (reproj_error <= reproj_thresh)
-        & (depth_error <= depth_limit)
+        & (source_depth <= max_depth)
+        & (target_depth <= max_depth)
     )
     if not keep.any():
         raise RuntimeError("depth filter removed every match")
 
     filtered = filter_match_arrays(feature_matches, keep)
-    filtered["depth_reproj_error_px"] = reproj_error[keep]
-    filtered["depth_error_m"] = depth_error[keep]
+    filtered["source_depth_m"] = source_depth[keep].astype(np.float32)
+    filtered["target_depth_m"] = target_depth[keep].astype(np.float32)
     return filtered, {
-        "depth_filter": "enabled",
+        "depth_range_filter": "enabled",
         "before": int(len(source_xy)),
         "after": int(keep.sum()),
         "min_depth": float(min_depth),
-        "depth_abs_thresh": float(depth_abs_thresh),
-        "depth_rel_thresh": float(depth_rel_thresh),
-        "reproj_thresh_px": float(reproj_thresh),
+        "max_depth": float(max_depth),
     }
 
 
@@ -359,9 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ransac-max-iters", type=int, default=10000)
     parser.add_argument("--depth-filter", action="store_true")
     parser.add_argument("--min-depth", type=float, default=0.1)
-    parser.add_argument("--depth-abs-thresh", type=float, default=0.25)
-    parser.add_argument("--depth-rel-thresh", type=float, default=0.05)
-    parser.add_argument("--depth-reproj-thresh", type=float, default=3.0)
+    parser.add_argument("--max-depth", type=float, default=50.0)
     parser.add_argument("--max-feature-points", type=int, default=1000)
     parser.add_argument("--feature-cross-size", type=float, default=6.0)
     parser.add_argument("--output", type=Path, default=Path("outputs/kitti_npy_feature_match_demo/matches.npy"))
@@ -371,6 +347,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.depth_filter and args.max_depth <= args.min_depth:
+        raise ValueError("--max-depth must be greater than --min-depth")
     index = load_index(args.index_file)
     sequence, frames = select_frames(index, args.sequence)
     frame_src = frames[args.source_frame]
@@ -406,9 +384,7 @@ def main() -> int:
             frame_src,
             frame_dst,
             args.min_depth,
-            args.depth_abs_thresh,
-            args.depth_rel_thresh,
-            args.depth_reproj_thresh,
+            args.max_depth,
         )
         filter_stats.append(stats)
 
@@ -426,10 +402,10 @@ def main() -> int:
     }
     if "distance" in feature_matches:
         output["feature_distance"] = np.asarray(feature_matches["distance"], dtype=np.float32)
-    if "depth_reproj_error_px" in feature_matches:
-        output["depth_reproj_error_px"] = np.asarray(feature_matches["depth_reproj_error_px"], dtype=np.float32)
-    if "depth_error_m" in feature_matches:
-        output["depth_error_m"] = np.asarray(feature_matches["depth_error_m"], dtype=np.float32)
+    if "source_depth_m" in feature_matches:
+        output["source_depth_m"] = np.asarray(feature_matches["source_depth_m"], dtype=np.float32)
+    if "target_depth_m" in feature_matches:
+        output["target_depth_m"] = np.asarray(feature_matches["target_depth_m"], dtype=np.float32)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("wb") as handle:
