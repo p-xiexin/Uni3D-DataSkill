@@ -153,7 +153,7 @@ sample index: 0
 sample views: 8
 ```
 
-## MAST3R-Style Correspondence Builder
+## Correspondence Dataset Builder
 
 The current annotation-tool work is implemented as a standalone correspondence
 builder. It constructs the configured Pi3X dataloaders from
@@ -162,11 +162,10 @@ builds positives from two GT-supervised sources by default: dense geometry
 correspondences from depth back-projection, and source-image feature points
 projected into the target frame with GT depth, intrinsics, and pose. Both paths
 are filtered by depth range and target-depth consistency. The builder writes
-MAST3R-style correspondence arrays plus an optional visualization for every
-successful pair.
+correspondence arrays plus an optional visualization for every successful pair.
 
 ```bash
-python tools/build_mast3r_correspondences.py \
+python tools/build_correspondence_dataset.py \
   --config dataset_config.local.json \
   --n-corres 8192 \
   --nneg 0.5 \

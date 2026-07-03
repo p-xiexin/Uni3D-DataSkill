@@ -145,18 +145,18 @@ sample index: 0
 sample views: 8
 ```
 
-## MAST3R 风格同名点构建工具
+## 同名点数据集构建工具
 
 当前同名匹配点标注工具已经有一个独立的批处理 builder。它会通过
 `src/unidata_skill/datasets` 构造 config 中声明的 Pi3X dataloader，直接使用
 dataloader 返回的 views。正样本默认来自两种 GT 监督来源：一种是由 depth
 反投影得到的 dense geometry correspondences，另一种是在 source 图像上提取
 特征点后，利用 GT depth、内参和 pose 投影到 target 图像。两条路径都会按
-depth 范围和 target depth 一致性过滤。最后会写出 MAST3R 风格的
-correspondence 数组，并可选保存每个成功 pair 的可视化图。
+depth 范围和 target depth 一致性过滤。最后会写出 correspondence 数组，
+并可选保存每个成功 pair 的可视化图。
 
 ```bash
-python tools/build_mast3r_correspondences.py \
+python tools/build_correspondence_dataset.py \
   --config dataset_config.local.json \
   --n-corres 8192 \
   --nneg 0.5 \
