@@ -171,38 +171,32 @@ want the Pi3 crop/resize path controlled by `--width` and `--height`.
 ```bash
 python tools/build_correspondence_dataset.py \
   --config dataset_config.local.json \
-  --n-corres 8192 \
-  --nneg 0.5 \
   --frame-gap 1
 ```
 
-Use `--positive-source geometry`, `--positive-source features`, or the default
-`--positive-source mixed` to choose the positive source. The feature path uses
+Use `--source geom`, `--source feat`, or the default `--source mixed` to choose
+the correspondence source. The feat path uses
 `--feature-method sift` by default and supports the same extractor names as the
-single-pair feature projection demo. Geometry uses the reciprocal
+single-pair feature projection demo. Geom uses the reciprocal
 `cropping.extract_correspondences_from_pts3d` flow from the cropping demo.
-Tune `--depth-consistency-thresh` for feature depth filtering and geometry
-3D-distance filtering. In `mixed` mode, geometry and feature positives are unioned;
-duplicate pairs are marked as `both`, and sampling keeps feature-related
-positives from being drowned out by dense geometry positives. By default, the
-builder writes the requested sampled correspondence count. Use
-`--save-stride <N>` to stride saved positives and negatives when a large
-`--n-corres` request would write too many points. Add `--no-visualization` when
-building arrays in an environment without Matplotlib or when image previews are
-not needed. Visualization uses filtered positives before training sampling and
+Tune `--depth-consistency-thresh` for feat depth filtering and geom 3D-distance
+filtering. In `mixed` mode, geom and feat correspondences are unioned; duplicate
+pairs are marked as `both`. Geom correspondences are thinned before
+union/saving/visualization with `--geom-stride 10` by default; feat
+correspondences are not affected. The builder writes all remaining
+correspondences. Add `--no-visualization`
+when building arrays in an environment without Matplotlib or when image previews
+are not needed. Visualization uses filtered correspondences and
 defaults to `--viz-stride 1`, matching the feature projection demo. Pairs are
 generated in sequence order as `(frame_i, frame_i +
 --frame-gap)`, so `--frame-gap 1` builds adjacent-frame pairs and larger values
 build fixed-gap pairs. The builder processes every selected sequence in full;
 use `--width` and `--height` to control dataloader resolution.
 
-Each saved `.npz` contains VGGT-style `tracks`, `track_vis_mask`, and
-`track_positive_mask` fields with shape `S=2`, plus compatibility fields
-`corres1`, `corres2`, `valid_corres`, and `distance_m` after save-stride
-subsampling. It also stores `positive_source_code`, `feature_score`,
-`target_depth_error_m`, `requested_n_corres`, and `save_stride` for diagnosing
-whether sampled positives came from the geometry path, feature path, or both,
-and how many were written.
+Each saved `.npz` contains `tracks` with shape `S=2`, plus `corres1`,
+`corres2`, `distance_m`, `source_code`, `feat_score`, and `depth_err`. It also
+stores `geom_stride` for diagnosing how many correspondences were written and
+whether they came from `geom`, `feat`, or `both`.
 `manifest.jsonl` records the `.npz` path, visualization path, source/target
 frame metadata, and match counts. The older
 `tools/kitti_npy_match_cropping_demo.py` remains available as a single-pair

@@ -118,7 +118,7 @@ def feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpar
         & (depth_error <= args.depth_consistency_thresh)
     )
 
-    positives = make_positive(xy1[keep], target_xy[keep].astype(np.float32), depth_error[keep], "feature", feature_score=score[keep], depth_error=depth_error[keep])
+    positives = make_positive(xy1[keep], target_xy[keep].astype(np.float32), depth_error[keep], "feat", feature_score=score[keep], depth_error=depth_error[keep])
     positives["source_depth_m"] = source_depth[keep].astype(np.float32)
     positives["target_depth_m"] = target_depth[keep].astype(np.float32)
     positives["projected_target_depth_m"] = projected_depth[keep].astype(np.float32)

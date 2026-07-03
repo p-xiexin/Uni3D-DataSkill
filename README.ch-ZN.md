@@ -162,8 +162,6 @@ crop/resize，并由 `--width` 和 `--height` 控制输出分辨率。
 ```bash
 python tools/build_correspondence_dataset.py \
   --config dataset_config.local.json \
-  --n-corres 8192 \
-  --nneg 0.5 \
   --frame-gap 1
 ```
 
@@ -171,27 +169,25 @@ Geometry 路径使用 cropping demo 中的 reciprocal
 `cropping.extract_correspondences_from_pts3d` 流程。`--depth-consistency-thresh`
 同时控制 feature 的深度一致性过滤和 geometry 的 3D 距离过滤。
 
-可以用 `--positive-source geometry`、`--positive-source features` 或默认的
-`--positive-source mixed` 选择正样本来源。feature 路径默认使用
+可以用 `--source geom`、`--source feat` 或默认的 `--source mixed`
+选择同名点来源。feat 路径默认使用
 `--feature-method sift`，也支持单 pair feature projection demo 里的同一组
-extractor 名称。`--depth-consistency-thresh` 控制 feature 投影的深度一致性
-过滤。`mixed` 模式会对 geometry 和 feature 正样本取并集合；重复命中的 pair
-会标记为 `both`，采样时也会保留 feature-related 正样本，避免被 dense
-geometry 正样本淹没。默认会按 `--n-corres` 写出采样后的同名点；如果同名点
-仍然太多，可以显式设置 `--save-stride <N>`，对保存的正负样本继续 stride。
+extractor 名称。`--depth-consistency-thresh` 控制 feat 投影的深度一致性
+过滤。`mixed` 模式会对 geom 和 feat 同名点取并集合；重复命中的 pair
+会标记为 `both`。geom 同名点默认会先按 `--geom-stride 10`
+降采样，再进入并集、保存和可视化；feat 同名点不受影响。builder 会写出
+所有剩余同名点。
 如果环境里没有 Matplotlib，或者不需要预览图，可以加 `--no-visualization`
-只生成数组和 manifest。可视化使用训练采样前的过滤后正样本，默认
+只生成数组和 manifest。可视化使用过滤后的同名点，默认
 `--viz-stride 1`，与 feature projection demo 保持一致。pair 会严格按 sequence 顺序生成，即
 `(frame_i, frame_i + --frame-gap)`；`--frame-gap 1` 表示相邻帧，更大的值表示
 固定间隔帧。builder 会完整处理所有选中的 sequence；`--width` 和 `--height`
 用来控制 dataloader 分辨率。
 
-每个 `.npz` 包含 VGGT-style 的 `tracks`、`track_vis_mask` 和
-`track_positive_mask` 字段，其中 `S=2`；同时保留兼容字段 `corres1`、
-`corres2`、`valid_corres` 和 `distance_m`，这些字段已经过 save-stride
-子采样。它还会保存 `positive_source_code`、`feature_score`、
-`target_depth_error_m`、`requested_n_corres` 和 `save_stride`，便于诊断
-采样到的正样本来自 geometry、feature 还是两者共同命中的路径，以及实际写入了多少同名点。
+每个 `.npz` 包含 `tracks` 字段，其中 `S=2`；同时保存 `corres1`、
+`corres2`、`distance_m`、`source_code`、`feat_score` 和 `depth_err`。
+它还会保存 `geom_stride`，便于诊断同名点来自 `geom`、`feat` 还是 `both`，
+以及实际写入了多少同名点。
 `manifest.jsonl` 记录 `.npz` 路径、可视化路径、source/target frame metadata 和匹配数量。旧的
 `tools/kitti_npy_match_cropping_demo.py` 仍保留为单 pair 调试 demo。
 builder 会通过 `sample-dataset` 使用的同一套 loader registry 处理选中的

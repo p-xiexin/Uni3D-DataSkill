@@ -37,13 +37,13 @@ def draw_crosses(axis, xy: np.ndarray, color_values: np.ndarray, size: float = 6
 
 
 def draw_source_aware_points(axis, xy: np.ndarray, codes: np.ndarray, color_values: np.ndarray) -> None:  # noqa: ANN001
-    geometry = codes == SOURCE_CODE["geometry"]
-    feature = codes == SOURCE_CODE["feature"]
+    geom = codes == SOURCE_CODE["geom"]
+    feat = codes == SOURCE_CODE["feat"]
     both = codes == SOURCE_CODE["both"]
-    if geometry.any():
-        axis.scatter(xy[geometry, 0], xy[geometry, 1], s=0.7, c=color_values[geometry], cmap="jet")
-    if feature.any():
-        draw_crosses(axis, xy[feature], color_values[feature], size=6.0, cmap="hsv")
+    if geom.any():
+        axis.scatter(xy[geom, 0], xy[geom, 1], s=0.7, c=color_values[geom], cmap="jet")
+    if feat.any():
+        draw_crosses(axis, xy[feat], color_values[feat], size=6.0, cmap="hsv")
     if both.any():
         axis.scatter(xy[both, 0], xy[both, 1], s=2.0, c=color_values[both], cmap="jet")
         draw_crosses(axis, xy[both], color_values[both], size=7.0, cmap="hsv")
@@ -85,23 +85,28 @@ def visualize(image1: np.ndarray, image2: np.ndarray, viz_positives: dict[str, d
     return int(len(pos1))
 
 
-def feature_demo_fields(viz_positives: dict[str, dict[str, np.ndarray]], positive_stats: dict[str, Any]) -> dict[str, np.ndarray]:
-    feature = viz_positives.get("feature", {})
-    if len(feature.get("corres1", [])) == 0:
+def feature_demo_fields(viz_positives: dict[str, dict[str, np.ndarray]], stats: dict[str, Any]) -> dict[str, np.ndarray]:
+    feat = viz_positives.get("feat", {})
+    if len(feat.get("corres1", [])) == 0:
         return {}
     fields = {
-        "feature_source_xy": np.asarray(feature["corres1"], dtype=np.float32),
-        "feature_target_xy": np.asarray(feature["corres2"], dtype=np.float32),
-        "feature_score": np.asarray(feature["feature_score"], dtype=np.float32),
-        "feature_method": np.asarray(positive_stats.get("feature", {}).get("method", "")),
-        "raw_feature_count": np.asarray(positive_stats.get("feature", {}).get("raw_features", len(feature["corres1"])), dtype=np.int32),
-        "projection_stats": np.asarray(positive_stats.get("feature", {}), dtype=object),
+        "feat_source_xy": np.asarray(feat["corres1"], dtype=np.float32),
+        "feat_target_xy": np.asarray(feat["corres2"], dtype=np.float32),
+        "feat_score_raw": np.asarray(feat["feature_score"], dtype=np.float32),
+        "feat_method": np.asarray(stats.get("feat", {}).get("method", "")),
+        "raw_feat_count": np.asarray(stats.get("feat", {}).get("raw_features", len(feat["corres1"])), dtype=np.int32),
+        "feat_stats": np.asarray(stats.get("feat", {}), dtype=object),
         "matching_style": np.asarray("source_features_gt_depth_projection"),
-        "target_depth_error_m": np.asarray(feature["target_depth_error_m"], dtype=np.float32),
+        "feat_depth_err": np.asarray(feat["target_depth_error_m"], dtype=np.float32),
     }
-    for key in ("source_depth_m", "target_depth_m", "projected_target_depth_m"):
-        if key in feature:
-            fields[key] = np.asarray(feature[key], dtype=np.float32)
+    depth_fields = {
+        "source_depth_m": "feat_source_depth_m",
+        "target_depth_m": "feat_target_depth_m",
+        "projected_target_depth_m": "feat_proj_depth_m",
+    }
+    for old_key, new_key in depth_fields.items():
+        if old_key in feat:
+            fields[new_key] = np.asarray(feat[old_key], dtype=np.float32)
     return fields
 
 
@@ -114,7 +119,7 @@ def write_pair(
     view2: dict[str, Any],
     arrays: dict[str, np.ndarray],
     viz_positives: dict[str, dict[str, np.ndarray]],
-    positive_stats: dict[str, Any],
+    stats: dict[str, Any],
     output_dir: Path,
     args: argparse.Namespace,
 ) -> tuple[dict[str, Any], dict[str, int]]:
@@ -127,12 +132,9 @@ def write_pair(
     image1 = as_image_array(view1["img"])
     image2 = as_image_array(view2["img"])
     visualized = 0 if args.no_visualization else visualize(image1, image2, viz_positives, viz_path, args)
-    feature_fields = feature_demo_fields(viz_positives, positive_stats)
+    feature_fields = feature_demo_fields(viz_positives, stats)
     save_arrays = dict(arrays)
-    if feature_fields:
-        save_arrays["sampled_feature_score"] = save_arrays["feature_score"]
-        save_arrays["sampled_target_depth_error_m"] = save_arrays["target_depth_error_m"]
-        save_arrays.update(feature_fields)
+    save_arrays.update(feature_fields)
 
     pair_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
@@ -146,17 +148,16 @@ def write_pair(
         image_paths=np.asarray([str(view1.get("image_path", "")), str(view2.get("image_path", ""))]),
         image_shape1=np.asarray(np.asarray(view1["depthmap"]).shape, dtype=np.int32),
         image_shape2=np.asarray(np.asarray(view2["depthmap"]).shape, dtype=np.int32),
-        n_corres=np.asarray(len(arrays["valid_corres"]), dtype=np.int32),
-        requested_n_corres=np.asarray(args.n_corres, dtype=np.int32),
-        positive_source=np.asarray(args.positive_source),
-        positive_source_code_names=SOURCE_NAMES,
-        save_stride=np.asarray(args.save_stride, dtype=np.int32),
+        n_corres=np.asarray(len(arrays["corres1"]), dtype=np.int32),
+        source=np.asarray(args.source),
+        source_code_names=SOURCE_NAMES,
+        geom_stride=np.asarray(args.geom_stride, dtype=np.int32),
     )
 
-    codes = arrays["positive_source_code"][arrays["valid_corres"]]
+    codes = arrays["source_code"]
     counts = {
-        "geometry": int((codes == SOURCE_CODE["geometry"]).sum()),
-        "feature": int((codes == SOURCE_CODE["feature"]).sum()),
+        "geom": int((codes == SOURCE_CODE["geom"]).sum()),
+        "feat": int((codes == SOURCE_CODE["feat"]).sum()),
         "both": int((codes == SOURCE_CODE["both"]).sum()),
     }
     manifest = {
@@ -167,14 +168,11 @@ def write_pair(
         "target_frame_id": target_part,
         "source_image": str(view1.get("image_path", "")),
         "target_image": str(view2.get("image_path", "")),
-        "num_corres": int(len(arrays["valid_corres"])),
-        "requested_num_corres": int(args.n_corres),
-        "num_positive": int(arrays["valid_corres"].sum()),
-        "num_negative": int((~arrays["valid_corres"]).sum()),
-        "num_geometry_positive": counts["geometry"],
-        "num_feature_positive": counts["feature"],
-        "num_both_positive": counts["both"],
-        "positive_stats": positive_stats,
+        "num_corres": int(len(arrays["corres1"])),
+        "num_geom": counts["geom"],
+        "num_feat": counts["feat"],
+        "num_both": counts["both"],
+        "stats": stats,
         "visualized": visualized,
     }
     return manifest, counts

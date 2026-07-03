@@ -157,7 +157,7 @@ def geometry_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpa
     pts2_in_cam2 = camera_points_from_world(pts2_world, pose2)[y2, x2]
     distances = np.linalg.norm(pts1_in_cam2 - pts2_in_cam2, axis=1)
     keep = np.isfinite(distances) & (distances <= args.depth_consistency_thresh)
-    positives = make_positive(source_xy[keep], target_xy[keep], distances[keep], "geometry", depth_error=distances[keep])
+    positives = make_positive(source_xy[keep], target_xy[keep], distances[keep], "geom", depth_error=distances[keep])
     return positives, {
         "matching_style": "cropping.extract_correspondences_from_pts3d",
         "reciprocal": reciprocal_count,
