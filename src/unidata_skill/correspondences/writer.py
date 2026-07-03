@@ -12,6 +12,43 @@ from .dataset_views import as_image_array, sanitize
 from .sampling import SOURCE_CODE, SOURCE_NAMES
 
 
+def select_viz_points(pos1: np.ndarray, pos2: np.ndarray, codes: np.ndarray, args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    pos1 = pos1[:: args.viz_stride]
+    pos2 = pos2[:: args.viz_stride]
+    codes = codes[:: args.viz_stride]
+    if len(pos1) > args.max_viz_points:
+        pick = np.linspace(0, len(pos1) - 1, args.max_viz_points).astype(np.int64)
+        pos1, pos2, codes = pos1[pick], pos2[pick], codes[pick]
+    return pos1, pos2, codes
+
+
+def draw_crosses(axis, xy: np.ndarray, color_values: np.ndarray, size: float = 6.0, cmap: str = "hsv") -> None:  # noqa: ANN001
+    if len(xy) == 0:
+        return
+    x = xy[:, 0]
+    y = xy[:, 1]
+    span = size / 2.0
+    norm = color_values / max(float(color_values.max()), 1.0)
+    import matplotlib.pyplot as plt
+
+    colors = plt.get_cmap(cmap)(norm)
+    axis.hlines(y, x - span, x + span, colors=colors, linewidth=0.8)
+    axis.vlines(x, y - span, y + span, colors=colors, linewidth=0.8)
+
+
+def draw_source_aware_points(axis, xy: np.ndarray, codes: np.ndarray, color_values: np.ndarray) -> None:  # noqa: ANN001
+    geometry = codes == SOURCE_CODE["geometry"]
+    feature = codes == SOURCE_CODE["feature"]
+    both = codes == SOURCE_CODE["both"]
+    if geometry.any():
+        axis.scatter(xy[geometry, 0], xy[geometry, 1], s=0.7, c=color_values[geometry], cmap="jet")
+    if feature.any():
+        draw_crosses(axis, xy[feature], color_values[feature], size=6.0, cmap="hsv")
+    if both.any():
+        axis.scatter(xy[both, 0], xy[both, 1], s=2.0, c=color_values[both], cmap="jet")
+        draw_crosses(axis, xy[both], color_values[both], size=7.0, cmap="hsv")
+
+
 def visualize(image1: np.ndarray, image2: np.ndarray, arrays: dict[str, np.ndarray], path: Path, args: argparse.Namespace) -> int:
     cache_dir = path.parent / ".matplotlib"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -21,23 +58,20 @@ def visualize(image1: np.ndarray, image2: np.ndarray, arrays: dict[str, np.ndarr
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    pos1 = arrays["corres1"][arrays["valid_corres"]][:: args.viz_stride]
-    pos2 = arrays["corres2"][arrays["valid_corres"]][:: args.viz_stride]
-    if len(pos1) > args.max_viz_points:
-        pick = np.linspace(0, len(pos1) - 1, args.max_viz_points).astype(np.int64)
-        pos1, pos2 = pos1[pick], pos2[pick]
-    colors = np.arange(len(pos1))
+    valid = arrays["valid_corres"]
+    pos1, pos2, codes = select_viz_points(arrays["corres1"][valid], arrays["corres2"][valid], arrays["positive_source_code"][valid], args)
+    colors = pos1[:, 0].astype(np.float32) + image1.shape[1] * pos1[:, 1].astype(np.float32) if len(pos1) else np.empty((0,), dtype=np.float32)
     plt.figure("correspondence_dataset", figsize=(5, 6))
-    plt.subplot(2, 1, 1)
-    plt.imshow(image1)
+    ax1 = plt.subplot(2, 1, 1)
+    ax1.imshow(image1)
     if len(pos1):
-        plt.scatter(pos1[:, 0], pos1[:, 1], s=0.7, c=colors, cmap="jet")
-    plt.gca().tick_params(labelbottom=False, labelleft=False)
-    plt.subplot(2, 1, 2)
-    plt.imshow(image2)
+        draw_source_aware_points(ax1, pos1, codes, colors)
+    ax1.tick_params(labelbottom=False, labelleft=False)
+    ax2 = plt.subplot(2, 1, 2)
+    ax2.imshow(image2)
     if len(pos2):
-        plt.scatter(pos2[:, 0], pos2[:, 1], s=0.7, c=colors, cmap="jet")
-    plt.gca().tick_params(labelbottom=False, labelleft=False)
+        draw_source_aware_points(ax2, pos2, codes, colors)
+    ax2.tick_params(labelbottom=False, labelleft=False)
     plt.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(path)
