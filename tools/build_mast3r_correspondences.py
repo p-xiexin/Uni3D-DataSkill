@@ -25,6 +25,12 @@ PLACEHOLDER_DEPTH_SOURCES = {
     "missing",
 }
 
+POSITIVE_SOURCE_CODES = {
+    "negative": 0,
+    "geometry": 1,
+    "feature": 2,
+}
+
 
 class PairSkip(RuntimeError):
     pass
@@ -149,7 +155,97 @@ def is_frame_usable(frame: dict[str, Any]) -> tuple[bool, str | None]:
     return True, None
 
 
-def find_positive_correspondences(
+def image_to_tensor(image: np.ndarray, device: str):
+    import torch
+
+    tensor = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
+    return tensor.to(device)
+
+
+def extract_lightglue_keypoints(
+    image: np.ndarray,
+    method: str,
+    max_keypoints: int,
+    detection_threshold: float,
+    device: str,
+) -> dict[str, np.ndarray | str]:
+    import torch
+    from lightglue import ALIKED, SIFT, SuperPoint
+
+    method = method.lower()
+    if method == "aliked":
+        extractor = ALIKED(max_num_keypoints=max_keypoints, detection_threshold=detection_threshold)
+    elif method in {"sp", "superpoint"}:
+        extractor = SuperPoint(max_num_keypoints=max_keypoints, detection_threshold=detection_threshold)
+    elif method == "lightglue_sift":
+        extractor = SIFT(max_num_keypoints=max_keypoints)
+    else:
+        raise ValueError(f"unsupported LightGlue extractor: {method}")
+
+    extractor = extractor.to(device).eval()
+    with torch.no_grad():
+        feats = extractor.extract(image_to_tensor(image, device), invalid_mask=None)
+
+    keypoints = feats["keypoints"][0].detach().cpu().numpy().astype(np.float32)
+    scores = feats.get("keypoint_scores")
+    if scores is None:
+        scores = feats.get("scores")
+    if scores is None:
+        score_np = np.ones(len(keypoints), dtype=np.float32)
+    else:
+        score_np = scores[0].detach().cpu().numpy().astype(np.float32)
+    if len(keypoints) == 0:
+        raise PairSkip(f"feature_extractor_empty:{method}")
+    return {"source_xy": keypoints, "score": score_np, "method": method}
+
+
+def extract_sift_keypoints(image: np.ndarray, max_keypoints: int) -> dict[str, np.ndarray | str]:
+    import cv2
+
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    sift = cv2.SIFT_create(nfeatures=max_keypoints)
+    keypoints = sift.detect(gray, None)
+    if not keypoints:
+        raise PairSkip("feature_extractor_empty:sift")
+
+    keypoints = sorted(keypoints, key=lambda item: item.response, reverse=True)[:max_keypoints]
+    source_xy = np.asarray([item.pt for item in keypoints], dtype=np.float32)
+    score = np.asarray([item.response for item in keypoints], dtype=np.float32)
+    return {"source_xy": source_xy, "score": score, "method": "opencv_sift"}
+
+
+def extract_source_features(
+    image: np.ndarray,
+    method: str,
+    max_keypoints: int,
+    detection_threshold: float,
+    device: str,
+) -> dict[str, np.ndarray | str]:
+    method = method.lower()
+    if method == "sift":
+        return extract_sift_keypoints(image, max_keypoints)
+    if method in {"aliked", "sp", "superpoint", "lightglue_sift"}:
+        return extract_lightglue_keypoints(image, method, max_keypoints, detection_threshold, device)
+    raise ValueError(f"unsupported feature method: {method}")
+
+
+def empty_positive_stats(source: str, reason: str) -> dict[str, Any]:
+    return {"source": source, "reason": reason, "after_filter": 0}
+
+
+def empty_positives(stats: dict[str, Any]) -> dict[str, np.ndarray | dict[str, Any]]:
+    return {
+        "corres1": np.empty((0, 2), dtype=np.int32),
+        "corres2": np.empty((0, 2), dtype=np.int32),
+        "distance_m": np.empty((0,), dtype=np.float32),
+        "source_code": np.empty((0,), dtype=np.int8),
+        "feature_score": np.empty((0,), dtype=np.float32),
+        "target_depth_error_m": np.empty((0,), dtype=np.float32),
+        "stats": stats,
+    }
+
+
+def find_geometry_correspondences(
     depth1: np.ndarray,
     depth2: np.ndarray,
     intrinsics1: np.ndarray,
@@ -157,8 +253,9 @@ def find_positive_correspondences(
     pose1: np.ndarray,
     pose2: np.ndarray,
     min_depth: float,
+    max_depth: float,
     dist_thresh: float,
-) -> dict[str, np.ndarray]:
+) -> dict[str, np.ndarray | dict[str, Any]]:
     view1 = {
         "pts3d": world_points_from_depth(depth1, intrinsics1, pose1),
         "camera_intrinsics": intrinsics1,
@@ -189,6 +286,8 @@ def find_positive_correspondences(
         & (y2 < h2)
         & (depth1[y1, x1] > min_depth)
         & (depth2[y2, x2] > min_depth)
+        & (depth1[y1, x1] <= max_depth)
+        & (depth2[y2, x2] <= max_depth)
     )
     x1 = x1[valid]
     y1 = y1[valid]
@@ -206,24 +305,217 @@ def find_positive_correspondences(
         "corres1": corres1,
         "corres2": corres2,
         "distance_m": distances[keep].astype(np.float32),
+        "source_code": np.full(len(corres1), POSITIVE_SOURCE_CODES["geometry"], dtype=np.int8),
+        "feature_score": np.full(len(corres1), np.nan, dtype=np.float32),
+        "target_depth_error_m": np.full(len(corres1), np.nan, dtype=np.float32),
         "stats": {
+            "source": "geometry",
             "reciprocal": int(len(pos1)),
             "valid_depth": int(valid.sum()),
             "after_distance": int(keep.sum()),
+            "max_depth": float(max_depth),
+            "dist_thresh": float(dist_thresh),
         },
     }
+
+
+def find_feature_correspondences(
+    image1: np.ndarray,
+    depth1: np.ndarray,
+    depth2: np.ndarray,
+    intrinsics1: np.ndarray,
+    intrinsics2: np.ndarray,
+    pose1: np.ndarray,
+    pose2: np.ndarray,
+    args: argparse.Namespace,
+) -> dict[str, np.ndarray | dict[str, Any]]:
+    features = extract_source_features(
+        image1,
+        args.feature_method,
+        args.max_keypoints,
+        args.detection_threshold,
+        args.device,
+    )
+    source_xy = np.asarray(features["source_xy"], dtype=np.float32)
+    scores = np.asarray(features["score"], dtype=np.float32)
+
+    h1, w1 = depth1.shape
+    h2, w2 = depth2.shape
+    x1 = np.rint(source_xy[:, 0]).astype(np.int64)
+    y1 = np.rint(source_xy[:, 1]).astype(np.int64)
+    source_inside = (x1 >= 0) & (x1 < w1) & (y1 >= 0) & (y1 < h1)
+    safe_x1 = np.clip(x1, 0, w1 - 1)
+    safe_y1 = np.clip(y1, 0, h1 - 1)
+    source_depth = depth1[safe_y1, safe_x1].astype(np.float64)
+    source_depth_valid = (
+        source_inside
+        & np.isfinite(source_depth)
+        & (source_depth > args.min_depth)
+        & (source_depth <= args.max_depth)
+    )
+
+    z1 = source_depth
+    x_cam1 = (source_xy[:, 0].astype(np.float64) - intrinsics1[0, 2]) / intrinsics1[0, 0] * z1
+    y_cam1 = (source_xy[:, 1].astype(np.float64) - intrinsics1[1, 2]) / intrinsics1[1, 1] * z1
+    points1 = np.stack((x_cam1, y_cam1, z1, np.ones_like(z1)), axis=1)
+    points_world = (pose1.astype(np.float64) @ points1.T).T
+    points2 = (np.linalg.inv(pose2.astype(np.float64)) @ points_world.T).T[:, :3]
+    projected_depth = points2[:, 2]
+
+    target_xy = np.empty((len(source_xy), 2), dtype=np.float64)
+    target_xy[:, 0] = intrinsics2[0, 0] * points2[:, 0] / projected_depth + intrinsics2[0, 2]
+    target_xy[:, 1] = intrinsics2[1, 1] * points2[:, 1] / projected_depth + intrinsics2[1, 2]
+
+    x2 = np.rint(target_xy[:, 0]).astype(np.int64)
+    y2 = np.rint(target_xy[:, 1]).astype(np.int64)
+    target_inside = (x2 >= 0) & (x2 < w2) & (y2 >= 0) & (y2 < h2)
+    safe_x2 = np.clip(x2, 0, w2 - 1)
+    safe_y2 = np.clip(y2, 0, h2 - 1)
+    target_depth = depth2[safe_y2, safe_x2].astype(np.float64)
+    depth_error = np.abs(projected_depth - target_depth)
+
+    keep = (
+        source_depth_valid
+        & np.isfinite(points2).all(axis=1)
+        & np.isfinite(target_xy).all(axis=1)
+        & (projected_depth > args.min_depth)
+        & (projected_depth <= args.max_depth)
+        & target_inside
+        & np.isfinite(target_depth)
+        & (target_depth > args.min_depth)
+        & (target_depth <= args.max_depth)
+        & np.isfinite(depth_error)
+        & (depth_error <= args.depth_consistency_thresh)
+    )
+
+    corres1 = np.stack((x1[keep], y1[keep]), axis=1).astype(np.int32)
+    corres2 = np.stack((x2[keep], y2[keep]), axis=1).astype(np.int32)
+    return {
+        "corres1": corres1,
+        "corres2": corres2,
+        "distance_m": depth_error[keep].astype(np.float32),
+        "source_code": np.full(len(corres1), POSITIVE_SOURCE_CODES["feature"], dtype=np.int8),
+        "feature_score": scores[keep].astype(np.float32),
+        "target_depth_error_m": depth_error[keep].astype(np.float32),
+        "stats": {
+            "source": "feature",
+            "method": features["method"],
+            "raw_features": int(len(source_xy)),
+            "source_valid_depth": int(source_depth_valid.sum()),
+            "target_inside": int((source_depth_valid & target_inside).sum()),
+            "after_depth_consistency": int(keep.sum()),
+            "max_depth": float(args.max_depth),
+            "depth_consistency_thresh": float(args.depth_consistency_thresh),
+        },
+    }
+
+
+def merge_positive_correspondences(
+    geometry: dict[str, np.ndarray | dict[str, Any]],
+    features: dict[str, np.ndarray | dict[str, Any]],
+    source_width: int,
+    target_width: int,
+    target_height: int,
+) -> dict[str, np.ndarray | dict[str, Any]]:
+    chunks = [geometry, features]
+    non_empty = [chunk for chunk in chunks if len(chunk["corres1"]) > 0]
+    if not non_empty:
+        return empty_positives({"source": "mixed", "geometry": geometry["stats"], "feature": features["stats"], "after_merge": 0})
+
+    corres1 = np.concatenate([np.asarray(chunk["corres1"], dtype=np.int32) for chunk in non_empty], axis=0)
+    corres2 = np.concatenate([np.asarray(chunk["corres2"], dtype=np.int32) for chunk in non_empty], axis=0)
+    distance_m = np.concatenate([np.asarray(chunk["distance_m"], dtype=np.float32) for chunk in non_empty], axis=0)
+    source_code = np.concatenate([np.asarray(chunk["source_code"], dtype=np.int8) for chunk in non_empty], axis=0)
+    feature_score = np.concatenate([np.asarray(chunk["feature_score"], dtype=np.float32) for chunk in non_empty], axis=0)
+    target_depth_error_m = np.concatenate([np.asarray(chunk["target_depth_error_m"], dtype=np.float32) for chunk in non_empty], axis=0)
+
+    keys = combined_pair_key(pixel_to_linear(corres1, source_width), pixel_to_linear(corres2, target_width), target_height * target_width)
+    _, unique_indices = np.unique(keys, return_index=True)
+    unique_indices = np.sort(unique_indices)
+    return {
+        "corres1": corres1[unique_indices],
+        "corres2": corres2[unique_indices],
+        "distance_m": distance_m[unique_indices],
+        "source_code": source_code[unique_indices],
+        "feature_score": feature_score[unique_indices],
+        "target_depth_error_m": target_depth_error_m[unique_indices],
+        "stats": {
+            "source": "mixed",
+            "geometry": geometry["stats"],
+            "feature": features["stats"],
+            "before_merge": int(len(corres1)),
+            "after_merge": int(len(unique_indices)),
+        },
+    }
+
+
+def build_positive_correspondences(
+    image1: np.ndarray,
+    depth1: np.ndarray,
+    depth2: np.ndarray,
+    intrinsics1: np.ndarray,
+    intrinsics2: np.ndarray,
+    pose1: np.ndarray,
+    pose2: np.ndarray,
+    args: argparse.Namespace,
+) -> dict[str, np.ndarray | dict[str, Any]]:
+    mode = args.positive_source
+    geometry = empty_positives(empty_positive_stats("geometry", "disabled"))
+    features = empty_positives(empty_positive_stats("feature", "disabled"))
+
+    if mode in {"geometry", "mixed"}:
+        geometry = find_geometry_correspondences(
+            depth1,
+            depth2,
+            intrinsics1,
+            intrinsics2,
+            pose1,
+            pose2,
+            args.min_depth,
+            args.max_depth,
+            args.dist_thresh,
+        )
+    if mode in {"features", "mixed"}:
+        try:
+            features = find_feature_correspondences(
+                image1,
+                depth1,
+                depth2,
+                intrinsics1,
+                intrinsics2,
+                pose1,
+                pose2,
+                args,
+            )
+        except PairSkip as exc:
+            if mode == "features":
+                raise
+            features = empty_positives(empty_positive_stats("feature", str(exc)))
+
+    if mode == "geometry":
+        return geometry
+    if mode == "features":
+        return features
+    return merge_positive_correspondences(geometry, features, depth1.shape[1], depth2.shape[1], depth2.shape[0])
 
 
 def sample_positive_matches(
     positives: dict[str, np.ndarray],
     target_count: int,
     rng: np.random.Generator,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     count = len(positives["corres1"])
     if count < target_count:
         raise ValueError(f"not enough positive matches: {count} < {target_count}")
     indices = rng.choice(count, size=target_count, replace=False)
-    return positives["corres1"][indices], positives["corres2"][indices], positives["distance_m"][indices]
+    return (
+        positives["corres1"][indices],
+        positives["corres2"][indices],
+        positives["distance_m"][indices],
+        positives["source_code"][indices],
+        positives["feature_score"][indices],
+        positives["target_depth_error_m"][indices],
+    )
 
 
 def sample_negative_matches(
@@ -294,7 +586,7 @@ def build_mast3r_arrays(
     if available_positive < required_positive:
         raise PairSkip(f"positive_matches_below_threshold:{available_positive}<{required_positive}")
 
-    pos1, pos2, pos_dist = sample_positive_matches(positives, target_positive, rng)
+    pos1, pos2, pos_dist, pos_source_code, pos_feature_score, pos_depth_error = sample_positive_matches(positives, target_positive, rng)
     neg1, neg2 = sample_negative_matches(depth1, depth2, pos1, pos2, target_negative, min_depth, rng)
 
     corres1 = np.concatenate((pos1, neg1), axis=0).astype(np.int32)
@@ -307,6 +599,18 @@ def build_mast3r_arrays(
         (pos_dist.astype(np.float32), np.full(target_negative, np.nan, dtype=np.float32)),
         axis=0,
     )
+    positive_source_code = np.concatenate(
+        (pos_source_code.astype(np.int8), np.full(target_negative, POSITIVE_SOURCE_CODES["negative"], dtype=np.int8)),
+        axis=0,
+    )
+    feature_score = np.concatenate(
+        (pos_feature_score.astype(np.float32), np.full(target_negative, np.nan, dtype=np.float32)),
+        axis=0,
+    )
+    target_depth_error_m = np.concatenate(
+        (pos_depth_error.astype(np.float32), np.full(target_negative, np.nan, dtype=np.float32)),
+        axis=0,
+    )
 
     perm = rng.permutation(n_corres)
     return {
@@ -314,7 +618,33 @@ def build_mast3r_arrays(
         "corres2": corres2[perm],
         "valid_corres": valid_corres[perm],
         "distance_m": distance_m[perm],
+        "positive_source_code": positive_source_code[perm],
+        "feature_score": feature_score[perm],
+        "target_depth_error_m": target_depth_error_m[perm],
     }
+
+
+def stride_saved_correspondences(arrays: dict[str, np.ndarray], stride: int) -> dict[str, np.ndarray]:
+    if stride <= 1:
+        return arrays
+
+    valid = arrays["valid_corres"].astype(bool)
+    positive_indices = np.flatnonzero(valid)[::stride]
+    negative_indices = np.flatnonzero(~valid)[::stride]
+    keep = np.sort(np.concatenate((positive_indices, negative_indices), axis=0))
+    if len(positive_indices) == 0:
+        raise PairSkip(f"save_stride_removed_all_positives:{stride}")
+    if len(keep) == 0:
+        raise PairSkip(f"save_stride_removed_all_correspondences:{stride}")
+
+    strided: dict[str, np.ndarray] = {}
+    count = len(valid)
+    for key, value in arrays.items():
+        if isinstance(value, np.ndarray) and value.ndim > 0 and value.shape[0] == count:
+            strided[key] = value[keep]
+        else:
+            strided[key] = value
+    return strided
 
 
 def add_vggt_track_arrays(arrays: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -439,6 +769,8 @@ def process_pair(
 
     image1_path = Path(frame1["image"])
     image2_path = Path(frame2["image"])
+    image1 = read_rgb(image1_path)
+    image2 = read_rgb(image2_path)
     depth1 = read_depth_meters(Path(frame1["depth"]))
     depth2 = read_depth_meters(Path(frame2["depth"]))
     intrinsics1 = np.asarray(frame1["camera_intrinsics"], dtype=np.float32)
@@ -446,15 +778,15 @@ def process_pair(
     pose1 = np.asarray(frame1["camera_pose"], dtype=np.float32)
     pose2 = np.asarray(frame2["camera_pose"], dtype=np.float32)
 
-    positives = find_positive_correspondences(
+    positives = build_positive_correspondences(
+        image1,
         depth1,
         depth2,
         intrinsics1,
         intrinsics2,
         pose1,
         pose2,
-        args.min_depth,
-        args.dist_thresh,
+        args,
     )
     arrays = build_mast3r_arrays(
         positives,
@@ -466,20 +798,21 @@ def process_pair(
         args.min_depth,
         rng,
     )
+    arrays = stride_saved_correspondences(arrays, args.save_stride)
     arrays = add_vggt_track_arrays(arrays)
 
-    image1 = read_rgb(image1_path)
-    image2 = read_rgb(image2_path)
-    visualized = visualize_matches(
-        image1,
-        image2,
-        arrays["corres1"],
-        arrays["corres2"],
-        arrays["valid_corres"],
-        viz_path,
-        args.viz_stride,
-        args.max_viz_points,
-    )
+    visualized = 0
+    if not args.no_visualization:
+        visualized = visualize_matches(
+            image1,
+            image2,
+            arrays["corres1"],
+            arrays["corres2"],
+            arrays["valid_corres"],
+            viz_path,
+            args.viz_stride,
+            args.max_viz_points,
+        )
 
     pair_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
@@ -494,20 +827,34 @@ def process_pair(
         image_paths=np.asarray([str(image1_path), str(image2_path)]),
         image_shape1=np.asarray(depth1.shape, dtype=np.int32),
         image_shape2=np.asarray(depth2.shape, dtype=np.int32),
-        n_corres=np.asarray(args.n_corres, dtype=np.int32),
+        n_corres=np.asarray(len(arrays["valid_corres"]), dtype=np.int32),
+        requested_n_corres=np.asarray(args.n_corres, dtype=np.int32),
+        save_stride=np.asarray(args.save_stride, dtype=np.int32),
         nneg=np.asarray(args.nneg, dtype=np.float32),
         dist_thresh=np.asarray(args.dist_thresh, dtype=np.float32),
         min_depth=np.asarray(args.min_depth, dtype=np.float32),
+        max_depth=np.asarray(args.max_depth, dtype=np.float32),
+        depth_consistency_thresh=np.asarray(args.depth_consistency_thresh, dtype=np.float32),
+        positive_source=np.asarray(args.positive_source),
+        feature_method=np.asarray(args.feature_method),
+        positive_source_code_names=np.asarray(["negative", "geometry", "feature"]),
     )
 
     num_positive = int(arrays["valid_corres"].sum())
     num_negative = int(len(arrays["valid_corres"]) - num_positive)
+    positive_source_codes = arrays["positive_source_code"][arrays["valid_corres"]]
+    geometry_positive = int((positive_source_codes == POSITIVE_SOURCE_CODES["geometry"]).sum())
+    feature_positive = int((positive_source_codes == POSITIVE_SOURCE_CODES["feature"]).sum())
     manifest = {
         "pair_path": relative_to_output(pair_path, args.output_dir),
-        "viz_path": relative_to_output(viz_path, args.output_dir),
-        "num_corres": int(args.n_corres),
+        "viz_path": None if args.no_visualization else relative_to_output(viz_path, args.output_dir),
+        "num_corres": int(len(arrays["valid_corres"])),
+        "requested_num_corres": int(args.n_corres),
+        "save_stride": int(args.save_stride),
         "num_positive": num_positive,
         "num_negative": num_negative,
+        "num_geometry_positive": geometry_positive,
+        "num_feature_positive": feature_positive,
         "source_image": str(image1_path),
         "target_image": str(image2_path),
         "sequence_id": sequence_id,
@@ -521,6 +868,8 @@ def process_pair(
         "available_positive": int(len(positives["corres1"])),
         "sampled_positive": num_positive,
         "sampled_negative": num_negative,
+        "sampled_geometry_positive": geometry_positive,
+        "sampled_feature_positive": feature_positive,
         "visualized": visualized,
     }
     return manifest, None, quality
@@ -531,12 +880,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True, help="Dataset config JSON. Every entry must define index_file.")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/mast3r_correspondences"))
     parser.add_argument("--sequence", default=None, help="Optional sequence_id to process. Defaults to every sequence.")
+    parser.add_argument("--positive-source", choices=["geometry", "features", "mixed"], default="mixed")
     parser.add_argument("--n-corres", type=int, default=8192)
     parser.add_argument("--nneg", type=float, default=0.5)
     parser.add_argument("--max-gap", type=int, default=5)
     parser.add_argument("--dist-thresh", type=float, default=0.25)
     parser.add_argument("--min-depth", type=float, default=0.1)
+    parser.add_argument("--max-depth", type=float, default=50.0)
+    parser.add_argument("--depth-consistency-thresh", type=float, default=0.25)
+    parser.add_argument("--feature-method", choices=["sift", "aliked", "superpoint", "sp", "lightglue_sift"], default="sift")
+    parser.add_argument("--max-keypoints", type=int, default=4096)
+    parser.add_argument("--detection-threshold", type=float, default=0.005)
+    parser.add_argument("--device", default="cuda")
     parser.add_argument("--min-positive", type=int, default=1)
+    parser.add_argument("--no-visualization", action="store_true")
+    parser.add_argument("--save-stride", type=int, default=None, help="Stride applied to saved correspondences. Defaults to --viz-stride.")
     parser.add_argument("--viz-stride", type=int, default=50)
     parser.add_argument("--max-viz-points", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=2024)
@@ -544,14 +902,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.save_stride is None:
+        args.save_stride = args.viz_stride
     if args.n_corres <= 0:
         raise ValueError("--n-corres must be positive")
     if not 0 <= args.nneg < 1:
         raise ValueError("--nneg must be in [0, 1)")
+    if args.max_depth <= args.min_depth:
+        raise ValueError("--max-depth must be greater than --min-depth")
+    if args.depth_consistency_thresh <= 0:
+        raise ValueError("--depth-consistency-thresh must be positive")
+    if args.max_keypoints <= 0:
+        raise ValueError("--max-keypoints must be positive")
     if args.max_gap <= 0:
         raise ValueError("--max-gap must be positive")
     if args.viz_stride <= 0:
         raise ValueError("--viz-stride must be positive")
+    if args.save_stride <= 0:
+        raise ValueError("--save-stride must be positive")
     if args.max_viz_points <= 0:
         raise ValueError("--max-viz-points must be positive")
 
@@ -575,6 +943,8 @@ def build_for_config(config: DatasetConfig, args: argparse.Namespace, rng: np.ra
     summary_path = output_dir / "summary.json"
     skip_reasons: Counter[str] = Counter()
     positive_counts: list[int] = []
+    sampled_geometry_positive = 0
+    sampled_feature_positive = 0
     total_pairs = 0
     success_pairs = 0
     visualizations_saved = 0
@@ -596,9 +966,12 @@ def build_for_config(config: DatasetConfig, args: argparse.Namespace, rng: np.ra
                 continue
             write_jsonl_record(manifest_file, manifest)
             success_pairs += 1
-            visualizations_saved += 1
+            if not args.no_visualization:
+                visualizations_saved += 1
             if quality is not None:
                 positive_counts.append(int(quality["available_positive"]))
+                sampled_geometry_positive += int(quality["sampled_geometry_positive"])
+                sampled_feature_positive += int(quality["sampled_feature_positive"])
             pair_iter.set_postfix(success=success_pairs, skipped=total_pairs - success_pairs)
 
     summary = {
@@ -614,14 +987,25 @@ def build_for_config(config: DatasetConfig, args: argparse.Namespace, rng: np.ra
         "positive_count_min": int(min(positive_counts)) if positive_counts else 0,
         "positive_count_max": int(max(positive_counts)) if positive_counts else 0,
         "positive_count_mean": float(np.mean(positive_counts)) if positive_counts else 0.0,
+        "sampled_geometry_positive": sampled_geometry_positive,
+        "sampled_feature_positive": sampled_feature_positive,
         "visualizations_saved": visualizations_saved,
         "parameters": {
+            "positive_source": args.positive_source,
             "n_corres": args.n_corres,
             "nneg": args.nneg,
             "max_gap": args.max_gap,
             "dist_thresh": args.dist_thresh,
             "min_depth": args.min_depth,
+            "max_depth": args.max_depth,
+            "depth_consistency_thresh": args.depth_consistency_thresh,
+            "feature_method": args.feature_method,
+            "max_keypoints": args.max_keypoints,
+            "detection_threshold": args.detection_threshold,
+            "device": args.device,
             "min_positive": args.min_positive,
+            "no_visualization": args.no_visualization,
+            "save_stride": args.save_stride,
             "viz_stride": args.viz_stride,
             "max_viz_points": args.max_viz_points,
             "seed": args.seed,
@@ -650,6 +1034,8 @@ def main() -> int:
         "total_pairs": int(sum(summary["total_pairs"] for summary in summaries)),
         "success_pairs": int(sum(summary["success_pairs"] for summary in summaries)),
         "skipped_pairs": int(sum(summary["skipped_pairs"] for summary in summaries)),
+        "sampled_geometry_positive": int(sum(summary["sampled_geometry_positive"] for summary in summaries)),
+        "sampled_feature_positive": int(sum(summary["sampled_feature_positive"] for summary in summaries)),
         "visualizations_saved": int(sum(summary["visualizations_saved"] for summary in summaries)),
     }
     summary_path = args.output_dir / "summary.json"

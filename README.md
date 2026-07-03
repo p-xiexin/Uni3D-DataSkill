@@ -155,12 +155,15 @@ sample views: 8
 
 ## MAST3R-Style Correspondence Builder
 
-The current annotation-tool work is implemented as a standalone geometry-based
+The current annotation-tool work is implemented as a standalone correspondence
 builder. It reads paired image, depth, intrinsics, and pose records from a
-generated KITTI-style `.npy` index, back-projects valid depth pixels to 3D,
-reprojects them into another frame, keeps reciprocal matches, filters by depth
-and 3D distance, then writes MAST3R-style correspondence arrays plus a
-visualization for every successful pair.
+generated KITTI-style `.npy` index, then builds positives from two GT-supervised
+sources by default: reciprocal geometry correspondences from depth back-
+projection, and source-image feature points projected into the target frame
+with GT depth, intrinsics, and pose. Both paths are filtered by depth range; the
+feature path also checks target-depth consistency. The builder writes
+MAST3R-style correspondence arrays plus a visualization for every successful
+pair.
 
 ```bash
 python tools/build_mast3r_correspondences.py \
@@ -170,11 +173,26 @@ python tools/build_mast3r_correspondences.py \
   --max-gap 5
 ```
 
+Use `--positive-source geometry`, `--positive-source features`, or the default
+`--positive-source mixed` to choose the positive source. The feature path uses
+`--feature-method sift` by default and supports the same extractor names as the
+single-pair feature projection demo. Tune `--depth-consistency-thresh` for
+feature projection filtering and `--dist-thresh` for reciprocal geometry
+filtering. Saved arrays are also strided by default using `--viz-stride`, so a
+large `--n-corres` request does not write every sampled correspondence. Override
+that behavior with `--save-stride 1` when full sampled arrays are needed. Add
+`--no-visualization` when building arrays in an environment without Matplotlib
+or when image previews are not needed.
+
 Each saved `.npz` contains VGGT-style `tracks`, `track_vis_mask`, and
 `track_positive_mask` fields with shape `S=2`, plus compatibility fields
-`corres1`, `corres2`, `valid_corres`, and `distance_m`. `manifest.jsonl`
-records the `.npz` path, visualization path, source/target frame metadata, and
-match counts. The older
+`corres1`, `corres2`, `valid_corres`, and `distance_m` after save-stride
+subsampling. It also stores `positive_source_code`, `feature_score`,
+`target_depth_error_m`, `requested_n_corres`, and `save_stride` for diagnosing
+whether sampled positives came from the geometry or feature path and how many
+were written.
+`manifest.jsonl` records the `.npz` path, visualization path, source/target
+frame metadata, and match counts. The older
 `tools/kitti_npy_match_cropping_demo.py` remains available as a single-pair
 debug demo. The builder processes every dataset entry in the config. Each entry
 must define `index_file`; if that file does not exist, the builder rebuilds it

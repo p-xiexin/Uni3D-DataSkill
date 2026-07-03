@@ -147,12 +147,13 @@ sample views: 8
 
 ## MAST3R 风格同名点构建工具
 
-当前同名匹配点标注工具已经有一个独立的几何批处理 builder。它从生成好的
+当前同名匹配点标注工具已经有一个独立的批处理 builder。它从生成好的
 KITTI-style `.npy` 索引中读取成对的 image、depth、camera intrinsics 和
-camera pose，先把有效 depth 像素反投影到 3D，再投影到另一帧图像中，
-保留双向互相指回的 reciprocal matches，并用 depth 与 3D 距离继续过滤。
-最后会写出 MAST3R 风格的 correspondence 数组，并为每个成功 pair 全量保存
-可视化图。
+camera pose，默认从两种 GT 监督来源生成正样本：一种是由 depth 反投影得到的
+reciprocal geometry correspondences，另一种是在 source 图像上提取特征点后，
+利用 GT depth、内参和 pose 投影到 target 图像。两条路径都会按 depth 范围
+过滤；feature 路径还会检查 target depth 一致性。最后会写出 MAST3R 风格的
+correspondence 数组，并为每个成功 pair 全量保存可视化图。
 
 ```bash
 python tools/build_mast3r_correspondences.py \
@@ -162,10 +163,23 @@ python tools/build_mast3r_correspondences.py \
   --max-gap 5
 ```
 
+可以用 `--positive-source geometry`、`--positive-source features` 或默认的
+`--positive-source mixed` 选择正样本来源。feature 路径默认使用
+`--feature-method sift`，也支持单 pair feature projection demo 里的同一组
+extractor 名称。`--depth-consistency-thresh` 控制 feature 投影的深度一致性
+过滤，`--dist-thresh` 控制 reciprocal geometry 的 3D 距离过滤。保存数组时默认
+也会使用 `--viz-stride` 做 stride，因此较大的 `--n-corres` 不会把所有采样到的
+同名点都写入文件；如果确实需要保存完整采样结果，可以显式设置
+`--save-stride 1`。如果环境里没有 Matplotlib，或者不需要预览图，可以加
+`--no-visualization` 只生成数组和 manifest。
+
 每个 `.npz` 包含 VGGT-style 的 `tracks`、`track_vis_mask` 和
 `track_positive_mask` 字段，其中 `S=2`；同时保留兼容字段 `corres1`、
-`corres2`、`valid_corres` 和 `distance_m`。`manifest.jsonl` 记录 `.npz`
-路径、可视化路径、source/target frame metadata 和匹配数量。旧的
+`corres2`、`valid_corres` 和 `distance_m`，这些字段已经过 save-stride
+子采样。它还会保存 `positive_source_code`、`feature_score`、
+`target_depth_error_m`、`requested_n_corres` 和 `save_stride`，便于诊断
+采样到的正样本来自 geometry 还是 feature 路径，以及实际写入了多少同名点。
+`manifest.jsonl` 记录 `.npz` 路径、可视化路径、source/target frame metadata 和匹配数量。旧的
 `tools/kitti_npy_match_cropping_demo.py` 仍保留为单 pair 调试 demo。
 builder 会处理 config 中的全部 dataset 条目。每个条目必须定义 `index_file`；
 如果该文件不存在，builder 会先重建 index，再生成 correspondences。每个数据集
