@@ -25,6 +25,13 @@ def construct_dataset(config: DatasetConfig, args: argparse.Namespace):
     return spec["class"](**kwargs)
 
 
+def passthrough_crop_resize(image, depthmap, intrinsics, resolution, rng=None, info=None, normal=None, far_mask=None):  # noqa: ANN001, ARG001
+    if isinstance(image, Image.Image):
+        image = np.asarray(image.convert("RGB"))
+    other = [value for value in (normal, far_mask) if value is not None]
+    return image, depthmap, intrinsics, *other
+
+
 @dataclass(frozen=True)
 class SequenceFrames:
     index: int
@@ -85,6 +92,9 @@ def load_pair_views(
         old_frames = dataset.frames[sequence.sequence_id]
         dataset.frames[sequence.sequence_id] = [sequence.frames[source_frame_idx], sequence.frames[target_frame_idx]]
     dataset.frame_num = 2
+    old_crop_resize = getattr(dataset, "_crop_resize_if_necessary", None)
+    if not args.resize_views and old_crop_resize is not None:
+        dataset._crop_resize_if_necessary = passthrough_crop_resize  # noqa: SLF001
     try:
         return dataset._get_views(  # noqa: SLF001
             sequence.index,
@@ -98,6 +108,8 @@ def load_pair_views(
             dataset.frames[sequence.sequence_id] = old_frames
         if old_frame_num is not None:
             dataset.frame_num = old_frame_num
+        if old_crop_resize is not None:
+            dataset._crop_resize_if_necessary = old_crop_resize  # noqa: SLF001
 
 
 def iter_frame_pairs(frame_count: int, frame_gap: int):

@@ -128,6 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--label", default=None)
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=384)
+    parser.add_argument("--resize-views", action="store_true", help="Use Pi3 crop/resize to --width/--height before correspondence extraction.")
     parser.add_argument("--frame-gap", type=int, default=1, help="Fixed frame gap for ordered sequence pairs.")
     parser.add_argument("--positive-source", choices=["geometry", "features", "mixed"], default="mixed")
     parser.add_argument("--n-corres", type=int, default=8192)

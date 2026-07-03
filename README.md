@@ -163,6 +163,10 @@ correspondences from depth back-projection, and source-image feature points
 projected into the target frame with GT depth, intrinsics, and pose. Both paths
 are filtered by depth range and target-depth consistency. The builder writes
 correspondence arrays plus an optional visualization for every successful pair.
+By default, pair views stay in the dataset's native image resolution so feature
+extraction, dense geometry projection, saved coordinates, and visualizations all
+use original-image coordinates. Add `--resize-views` only when you intentionally
+want the Pi3 crop/resize path controlled by `--width` and `--height`.
 
 ```bash
 python tools/build_correspondence_dataset.py \
