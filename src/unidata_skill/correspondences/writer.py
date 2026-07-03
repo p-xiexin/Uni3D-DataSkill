@@ -85,6 +85,26 @@ def visualize(image1: np.ndarray, image2: np.ndarray, viz_positives: dict[str, d
     return int(len(pos1))
 
 
+def feature_demo_fields(viz_positives: dict[str, dict[str, np.ndarray]], positive_stats: dict[str, Any]) -> dict[str, np.ndarray]:
+    feature = viz_positives.get("feature", {})
+    if len(feature.get("corres1", [])) == 0:
+        return {}
+    fields = {
+        "feature_source_xy": np.asarray(feature["corres1"], dtype=np.float32),
+        "feature_target_xy": np.asarray(feature["corres2"], dtype=np.float32),
+        "feature_score": np.asarray(feature["feature_score"], dtype=np.float32),
+        "feature_method": np.asarray(positive_stats.get("feature", {}).get("method", "")),
+        "raw_feature_count": np.asarray(positive_stats.get("feature", {}).get("raw_features", len(feature["corres1"])), dtype=np.int32),
+        "projection_stats": np.asarray(positive_stats.get("feature", {}), dtype=object),
+        "matching_style": np.asarray("source_features_gt_depth_projection"),
+        "target_depth_error_m": np.asarray(feature["target_depth_error_m"], dtype=np.float32),
+    }
+    for key in ("source_depth_m", "target_depth_m", "projected_target_depth_m"):
+        if key in feature:
+            fields[key] = np.asarray(feature[key], dtype=np.float32)
+    return fields
+
+
 def write_pair(
     sequence_index: int,
     sequence_id: str,
@@ -107,11 +127,17 @@ def write_pair(
     image1 = as_image_array(view1["img"])
     image2 = as_image_array(view2["img"])
     visualized = 0 if args.no_visualization else visualize(image1, image2, viz_positives, viz_path, args)
+    feature_fields = feature_demo_fields(viz_positives, positive_stats)
+    save_arrays = dict(arrays)
+    if feature_fields:
+        save_arrays["sampled_feature_score"] = save_arrays["feature_score"]
+        save_arrays["sampled_target_depth_error_m"] = save_arrays["target_depth_error_m"]
+        save_arrays.update(feature_fields)
 
     pair_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         pair_path,
-        **arrays,
+        **save_arrays,
         sequence_id=np.asarray(sequence_part),
         source_frame_id=np.asarray(source_part),
         target_frame_id=np.asarray(target_part),

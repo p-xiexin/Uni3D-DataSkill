@@ -144,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-positive", type=int, default=1)
     parser.add_argument("--save-stride", type=int, default=1)
     parser.add_argument("--no-visualization", action="store_true")
-    parser.add_argument("--viz-stride", type=int, default=50)
+    parser.add_argument("--viz-stride", type=int, default=1)
     parser.add_argument("--max-viz-points", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=2024)
     return parser

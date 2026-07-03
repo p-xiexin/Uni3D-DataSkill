@@ -189,7 +189,9 @@ builder writes the requested sampled correspondence count. Use
 `--save-stride <N>` to stride saved positives and negatives when a large
 `--n-corres` request would write too many points. Add `--no-visualization` when
 building arrays in an environment without Matplotlib or when image previews are
-not needed. Pairs are generated in sequence order as `(frame_i, frame_i +
+not needed. Visualization uses filtered positives before training sampling and
+defaults to `--viz-stride 1`, matching the feature projection demo. Pairs are
+generated in sequence order as `(frame_i, frame_i +
 --frame-gap)`, so `--frame-gap 1` builds adjacent-frame pairs and larger values
 build fixed-gap pairs. The builder processes every selected sequence in full;
 use `--width` and `--height` to control dataloader resolution.

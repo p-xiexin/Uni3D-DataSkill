@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from .dataset_views import as_image_array
-from .geometry import project_pixels_between_views_numpy, to_numpy
+from .geometry import to_numpy
 from .sampling import PairSkip, make_positive
 
 
@@ -68,27 +68,71 @@ def feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpar
     k2 = np.asarray(view2["camera_intrinsics"], dtype=np.float64)
     pose1 = np.asarray(view1["camera_pose"], dtype=np.float64)
     pose2 = np.asarray(view2["camera_pose"], dtype=np.float64)
-    source_xy, target_xy, depth_error, keep, projection_stats = project_pixels_between_views_numpy(
-        xy1,
-        depth1,
-        depth2,
-        k1,
-        k2,
-        pose1,
-        pose2,
-        args,
+    h1, w1 = depth1.shape
+    h2, w2 = depth2.shape
+
+    x_src_round = np.rint(xy1[:, 0]).astype(np.int64)
+    y_src_round = np.rint(xy1[:, 1]).astype(np.int64)
+    source_inside = (x_src_round >= 0) & (x_src_round < w1) & (y_src_round >= 0) & (y_src_round < h1)
+    safe_x_src = np.clip(x_src_round, 0, w1 - 1)
+    safe_y_src = np.clip(y_src_round, 0, h1 - 1)
+    source_depth = depth1[safe_y_src, safe_x_src].astype(np.float64)
+    source_depth_valid = (
+        source_inside
+        & np.isfinite(source_depth)
+        & (source_depth > args.min_depth)
+        & (source_depth <= args.max_depth)
     )
-    positives = make_positive(source_xy[keep], target_xy[keep], depth_error[keep], "feature", feature_score=score[keep], depth_error=depth_error[keep])
-    projection_stats.update(
-        {
-            "method": method,
-            "projection_filter": "gt_depth_projection",
-            "raw": int(len(xy1)),
-            "raw_features": int(len(xy1)),
-            "after_depth_consistency": int(keep.sum()),
-            "min_depth": float(args.min_depth),
-            "max_depth": float(args.max_depth),
-            "depth_consistency_thresh": float(args.depth_consistency_thresh),
-        }
+
+    z_src = source_depth
+    x_cam_src = (xy1[:, 0].astype(np.float64) - k1[0, 2]) / k1[0, 0] * z_src
+    y_cam_src = (xy1[:, 1].astype(np.float64) - k1[1, 2]) / k1[1, 1] * z_src
+    points_src = np.stack((x_cam_src, y_cam_src, z_src, np.ones_like(z_src)), axis=1)
+    points_world = (pose1 @ points_src.T).T
+    points_dst = (np.linalg.inv(pose2) @ points_world.T).T[:, :3]
+    projected_depth = points_dst[:, 2]
+
+    target_xy = np.empty((len(xy1), 2), dtype=np.float64)
+    target_xy[:, 0] = k2[0, 0] * points_dst[:, 0] / projected_depth + k2[0, 2]
+    target_xy[:, 1] = k2[1, 1] * points_dst[:, 1] / projected_depth + k2[1, 2]
+
+    x_dst_round = np.rint(target_xy[:, 0]).astype(np.int64)
+    y_dst_round = np.rint(target_xy[:, 1]).astype(np.int64)
+    target_inside = (x_dst_round >= 0) & (x_dst_round < w2) & (y_dst_round >= 0) & (y_dst_round < h2)
+    safe_x_dst = np.clip(x_dst_round, 0, w2 - 1)
+    safe_y_dst = np.clip(y_dst_round, 0, h2 - 1)
+    target_depth = depth2[safe_y_dst, safe_x_dst].astype(np.float64)
+    depth_error = np.abs(projected_depth - target_depth)
+
+    keep = (
+        source_depth_valid
+        & np.isfinite(points_dst).all(axis=1)
+        & np.isfinite(target_xy).all(axis=1)
+        & (projected_depth > args.min_depth)
+        & (projected_depth <= args.max_depth)
+        & target_inside
+        & np.isfinite(target_depth)
+        & (target_depth > args.min_depth)
+        & (target_depth <= args.max_depth)
+        & np.isfinite(depth_error)
+        & (depth_error <= args.depth_consistency_thresh)
     )
-    return positives, projection_stats
+
+    positives = make_positive(xy1[keep], target_xy[keep].astype(np.float32), depth_error[keep], "feature", feature_score=score[keep], depth_error=depth_error[keep])
+    positives["source_depth_m"] = source_depth[keep].astype(np.float32)
+    positives["target_depth_m"] = target_depth[keep].astype(np.float32)
+    positives["projected_target_depth_m"] = projected_depth[keep].astype(np.float32)
+    positives["source_linear"] = (x_src_round[keep] + w1 * y_src_round[keep]).astype(np.int64)
+    return positives, {
+        "method": method,
+        "projection_filter": "gt_depth_projection",
+        "raw": int(len(xy1)),
+        "raw_features": int(len(xy1)),
+        "source_valid_depth": int(source_depth_valid.sum()),
+        "target_inside": int((source_depth_valid & target_inside).sum()),
+        "after_filter": int(keep.sum()),
+        "after_depth_consistency": int(keep.sum()),
+        "min_depth": float(args.min_depth),
+        "max_depth": float(args.max_depth),
+        "depth_consistency_thresh": float(args.depth_consistency_thresh),
+    }
