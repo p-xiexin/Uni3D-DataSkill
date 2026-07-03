@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,24 +20,92 @@ def sanitize(value: Any) -> str:
 def construct_dataset(config: DatasetConfig, args: argparse.Namespace):
     spec = _loader_spec(config.dataset)
     kwargs = _coerce_dataset_kwargs(spec, config)
-    kwargs["frame_num"] = args.views_per_sample
+    kwargs["frame_num"] = 2
     kwargs["resolution"] = [[args.width, args.height]]
     return spec["class"](**kwargs)
 
 
-def get_views(dataset: Any, sample_idx: int, args: argparse.Namespace, rng: np.random.Generator) -> list[dict[str, Any]]:
-    if hasattr(dataset, "_get_views"):
-        return dataset._get_views(sample_idx, [args.width, args.height], rng)  # noqa: SLF001
-    return dataset[sample_idx]
+@dataclass(frozen=True)
+class SequenceFrames:
+    index: int
+    sequence_id: str
+    frames: list[dict[str, Any]]
+    source: str
 
 
-def iter_view_pairs(views: list[dict[str, Any]], max_gap: int):
-    for source_idx in range(len(views)):
-        for gap in range(1, max_gap + 1):
-            target_idx = source_idx + gap
-            if target_idx >= len(views):
-                break
-            yield source_idx, target_idx
+class OrderedPairRng:
+    def __init__(self, seed: int) -> None:
+        self._rng = np.random.default_rng(seed)
+
+    def choice(self, a, size=None, replace=True, p=None, axis=0, shuffle=True):  # noqa: ANN001
+        if isinstance(a, int) and a == 2 and size == 2 and not replace:
+            return np.asarray([0, 1], dtype=np.int64)
+        return self._rng.choice(a, size=size, replace=replace, p=p, axis=axis, shuffle=shuffle)
+
+    def integers(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return self._rng.integers(*args, **kwargs)
+
+
+def iter_sequences(dataset: Any) -> list[SequenceFrames]:
+    if hasattr(dataset, "records") and hasattr(dataset, "frames"):
+        out = []
+        for index, record in enumerate(dataset.records):
+            sequence_id = str(record.get("sequence_id", index))
+            out.append(SequenceFrames(index, sequence_id, list(dataset.frames.get(sequence_id, [])), "frames"))
+        return out
+    if hasattr(dataset, "sequences") and hasattr(dataset, "frames"):
+        out = []
+        for index, sequence_id in enumerate(dataset.sequences):
+            sequence_text = str(sequence_id)
+            out.append(SequenceFrames(index, sequence_text, list(dataset.frames.get(sequence_text, [])), "frames"))
+        return out
+    if hasattr(dataset, "routes"):
+        out = []
+        for index, route in enumerate(dataset.routes):
+            sequence_id = str(route.get("sequence_id", index))
+            out.append(SequenceFrames(index, sequence_id, list(route.get("frames", [])), "routes"))
+        return out
+    return []
+
+
+def load_pair_views(
+    dataset: Any,
+    sequence: SequenceFrames,
+    source_frame_idx: int,
+    target_frame_idx: int,
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    if not hasattr(dataset, "_get_views"):
+        raise TypeError("strict sequence pair loading requires a dataset with _get_views")
+    old_frame_num = getattr(dataset, "frame_num", None)
+    if sequence.source == "routes":
+        old_frames = dataset.routes[sequence.index]["frames"]
+        dataset.routes[sequence.index]["frames"] = [sequence.frames[source_frame_idx], sequence.frames[target_frame_idx]]
+    else:
+        old_frames = dataset.frames[sequence.sequence_id]
+        dataset.frames[sequence.sequence_id] = [sequence.frames[source_frame_idx], sequence.frames[target_frame_idx]]
+    dataset.frame_num = 2
+    try:
+        return dataset._get_views(  # noqa: SLF001
+            sequence.index,
+            [args.width, args.height],
+            OrderedPairRng(args.seed + source_frame_idx * 1000003 + target_frame_idx),
+        )
+    finally:
+        if sequence.source == "routes":
+            dataset.routes[sequence.index]["frames"] = old_frames
+        else:
+            dataset.frames[sequence.sequence_id] = old_frames
+        if old_frame_num is not None:
+            dataset.frame_num = old_frame_num
+
+
+def iter_frame_pairs(frame_count: int, frame_gap: int):
+    for source_idx in range(frame_count):
+        target_idx = source_idx + frame_gap
+        if target_idx >= frame_count:
+            break
+        yield source_idx, target_idx
 
 
 def as_image_array(image: Any) -> np.ndarray:
@@ -67,4 +136,3 @@ def jsonable_args(args: argparse.Namespace) -> dict[str, Any]:
     for key, value in vars(args).items():
         out[key] = str(value) if isinstance(value, Path) else value
     return out
-

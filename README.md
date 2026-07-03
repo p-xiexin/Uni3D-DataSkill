@@ -169,7 +169,7 @@ python tools/build_correspondence_dataset.py \
   --config dataset_config.local.json \
   --n-corres 8192 \
   --nneg 0.5 \
-  --max-gap 5
+  --frame-gap 1
 ```
 
 Use `--positive-source geometry`, `--positive-source features`, or the default
@@ -183,8 +183,10 @@ builder writes the requested sampled correspondence count. Use
 `--save-stride <N>` to stride saved positives and negatives when a large
 `--n-corres` request would write too many points. Add `--no-visualization` when
 building arrays in an environment without Matplotlib or when image previews are
-not needed. Use `--views-per-sample`, `--width`, `--height`, and
-`--max-samples` to control dataloader sampling.
+not needed. Pairs are generated in sequence order as `(frame_i, frame_i +
+--frame-gap)`, so `--frame-gap 1` builds adjacent-frame pairs and larger values
+build fixed-gap pairs. The builder processes every selected sequence in full;
+use `--width` and `--height` to control dataloader resolution.
 
 Each saved `.npz` contains VGGT-style `tracks`, `track_vis_mask`, and
 `track_positive_mask` fields with shape `S=2`, plus compatibility fields

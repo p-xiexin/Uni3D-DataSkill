@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from unidata_skill.config import DatasetConfig, load_dataset_configs
 
-from .dataset_views import construct_dataset, get_views, iter_view_pairs, jsonable_args, sanitize
+from .dataset_views import construct_dataset, iter_frame_pairs, iter_sequences, jsonable_args, load_pair_views, sanitize
 from .features import feature_positives
 from .geometry import geometry_positives
 from .sampling import PairSkip, empty_positive, make_arrays, union_positives
@@ -43,29 +43,32 @@ def process_config(config: DatasetConfig, args: argparse.Namespace, rng: np.rand
     dataset = construct_dataset(config, args)
     output_dir = args.output_dir / sanitize(config.label)
     output_dir.mkdir(parents=True, exist_ok=True)
-    limit = min(len(dataset), args.max_samples) if args.max_samples else len(dataset)
+    sequences = iter_sequences(dataset)
+    if not sequences:
+        raise RuntimeError(f"dataset '{config.label}' does not expose ordered sequence frames")
     manifest_path = output_dir / "manifest.jsonl"
     skipped: Counter[str] = Counter()
     totals: Counter[str] = Counter()
 
     with manifest_path.open("w", encoding="utf-8") as handle:
-        for sample_idx in tqdm(range(limit), desc=config.label, unit="sample"):
-            try:
-                views = get_views(dataset, sample_idx, args, rng)
-            except Exception as exc:
-                skipped[f"load_sample:{exc}"] += 1
+        for sequence in tqdm(sequences, desc=config.label, unit="sequence"):
+            if len(sequence.frames) < 2:
+                skipped[f"{sequence.sequence_id}:fewer_than_two_frames"] += 1
                 continue
-            if len(views) < 2:
-                skipped["fewer_than_two_views"] += 1
-                continue
-            for source_idx, target_idx in iter_view_pairs(views, args.max_gap):
+            for source_idx, target_idx in iter_frame_pairs(len(sequence.frames), args.frame_gap):
                 totals["total_pairs"] += 1
                 try:
-                    positives, positive_stats = build_positives(views[source_idx], views[target_idx], args)
-                    arrays = make_arrays(positives, views[source_idx], views[target_idx], args, rng)
-                    manifest, counts = write_pair(sample_idx, source_idx, target_idx, views[source_idx], views[target_idx], arrays, positive_stats, output_dir, args)
+                    views = load_pair_views(dataset, sequence, source_idx, target_idx, args)
+                    if len(views) != 2:
+                        raise PairSkip(f"loaded_pair_view_count:{len(views)}")
+                    positives, positive_stats = build_positives(views[0], views[1], args)
+                    arrays = make_arrays(positives, views[0], views[1], args, rng)
+                    manifest, counts = write_pair(sequence.index, source_idx, target_idx, views[0], views[1], arrays, positive_stats, output_dir, args)
                 except PairSkip as exc:
                     skipped[str(exc)] += 1
+                    continue
+                except Exception as exc:
+                    skipped[f"load_or_process_pair:{exc}"] += 1
                     continue
                 handle.write(json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n")
                 totals["success_pairs"] += 1
@@ -77,7 +80,7 @@ def process_config(config: DatasetConfig, args: argparse.Namespace, rng: np.rand
         "label": config.label,
         "dataset": config.dataset,
         "output_dir": str(output_dir),
-        "samples": int(limit),
+        "sequences": int(len(sequences)),
         "total_pairs": int(totals["total_pairs"]),
         "success_pairs": int(totals["success_pairs"]),
         "skipped_pairs": int(totals["total_pairs"] - totals["success_pairs"]),
@@ -98,11 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/correspondence_dataset"))
     parser.add_argument("--label", default=None)
-    parser.add_argument("--views-per-sample", type=int, default=8)
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=384)
-    parser.add_argument("--max-samples", type=int, default=None)
-    parser.add_argument("--max-gap", type=int, default=5)
+    parser.add_argument("--frame-gap", type=int, default=1, help="Fixed frame gap for ordered sequence pairs.")
     parser.add_argument("--positive-source", choices=["geometry", "features", "mixed"], default="mixed")
     parser.add_argument("--n-corres", type=int, default=8192)
     parser.add_argument("--nneg", type=float, default=0.5)
@@ -123,8 +124,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.views_per_sample < 2:
-        raise ValueError("--views-per-sample must be at least 2")
     if args.width <= 0 or args.height <= 0:
         raise ValueError("--width and --height must be positive")
     if args.n_corres <= 0:
@@ -135,9 +134,7 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-depth must be greater than --min-depth")
     if args.depth_consistency_thresh <= 0:
         raise ValueError("--depth-consistency-thresh must be positive")
-    if args.max_samples is not None and args.max_samples <= 0:
-        raise ValueError("--max-samples must be positive when provided")
-    for key in ("max_gap", "max_keypoints", "save_stride", "viz_stride", "max_viz_points"):
+    for key in ("frame_gap", "max_keypoints", "save_stride", "viz_stride", "max_viz_points"):
         if getattr(args, key) <= 0:
             raise ValueError(f"--{key.replace('_', '-')} must be positive")
 
