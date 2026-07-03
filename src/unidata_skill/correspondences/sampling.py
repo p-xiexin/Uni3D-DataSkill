@@ -23,8 +23,8 @@ def make_positive(
 ) -> dict[str, np.ndarray]:
     count = len(corres1)
     return {
-        "corres1": corres1.astype(np.int32),
-        "corres2": corres2.astype(np.int32),
+        "corres1": np.asarray(corres1, dtype=np.float32),
+        "corres2": np.asarray(corres2, dtype=np.float32),
         "distance_m": distance.astype(np.float32),
         "source_code": np.full(count, SOURCE_CODE[source], dtype=np.int8),
         "feature_score": np.full(count, np.nan, dtype=np.float32) if feature_score is None else feature_score.astype(np.float32),
@@ -37,7 +37,8 @@ def empty_positive() -> dict[str, np.ndarray]:
 
 
 def pixel_to_linear(xy: np.ndarray, width: int) -> np.ndarray:
-    return xy[:, 0].astype(np.int64) + width * xy[:, 1].astype(np.int64)
+    xy_round = np.rint(xy).astype(np.int64)
+    return xy_round[:, 0] + width * xy_round[:, 1]
 
 
 def pair_key(corres1: np.ndarray, corres2: np.ndarray, width1: int, width2: int, height2: int) -> np.ndarray:
@@ -150,8 +151,8 @@ def make_arrays(pos: dict[str, np.ndarray], view1: dict, view2: dict, args: argp
     neg1, neg2 = sample_negatives(np.asarray(view1["depthmap"]), np.asarray(view2["depthmap"]), pos1, pos2, n_neg, args, rng)
 
     arrays = {
-        "corres1": np.concatenate((pos1, neg1), axis=0).astype(np.int32),
-        "corres2": np.concatenate((pos2, neg2), axis=0).astype(np.int32),
+        "corres1": np.concatenate((pos1, neg1), axis=0).astype(np.float32),
+        "corres2": np.concatenate((pos2, neg2), axis=0).astype(np.float32),
         "valid_corres": np.concatenate((np.ones(n_pos, dtype=bool), np.zeros(n_neg, dtype=bool))),
         "distance_m": np.concatenate((pos["distance_m"][pick], np.full(n_neg, np.nan, dtype=np.float32))),
         "positive_source_code": np.concatenate((pos["source_code"][pick], np.full(n_neg, SOURCE_CODE["negative"], dtype=np.int8))),

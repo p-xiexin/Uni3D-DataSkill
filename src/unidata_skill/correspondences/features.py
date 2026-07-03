@@ -79,5 +79,16 @@ def feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpar
         args,
     )
     positives = make_positive(source_xy[keep], target_xy[keep], depth_error[keep], "feature", feature_score=score[keep], depth_error=depth_error[keep])
-    projection_stats.update({"method": method, "raw": int(len(xy1))})
+    projection_stats.update(
+        {
+            "method": method,
+            "projection_filter": "gt_depth_projection",
+            "raw": int(len(xy1)),
+            "raw_features": int(len(xy1)),
+            "after_depth_consistency": int(keep.sum()),
+            "min_depth": float(args.min_depth),
+            "max_depth": float(args.max_depth),
+            "depth_consistency_thresh": float(args.depth_consistency_thresh),
+        }
+    )
     return positives, projection_stats

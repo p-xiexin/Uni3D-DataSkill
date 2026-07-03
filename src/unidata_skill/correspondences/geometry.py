@@ -101,7 +101,7 @@ def project_pixels_between_views_numpy(
         "target_inside": int((source_depth_valid & target_inside).sum()),
         "after_filter": int(keep.sum()),
     }
-    return source_xy_round, target_xy_round, depth_error, keep, stats
+    return source_xy_float.astype(np.float32), target_xy_float.astype(np.float32), depth_error, keep, stats
 
 
 def geometry_positives_numpy(
