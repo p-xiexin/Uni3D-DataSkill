@@ -172,8 +172,9 @@ builder 会处理 config 中的全部 dataset 条目。每个条目必须定义 
 会按 label 写入 `--output-dir` 下的独立子目录。
 
 如果要做视觉特征实验，可以使用 `tools/kitti_npy_feature_match_demo.py`。
-这是一个独立的 image-feature matching demo，不运行 GT 几何同名点逻辑；
-特征匹配点用短十字线绘制：
+它只在 source 图像上提取特征，再利用 GT depth、内参和 pose 把这些特征点
+投影到 target 图像，并结合 target depth 做几何一致性过滤。投影后的特征
+对应点用短十字线绘制：
 
 ```bash
 python tools/kitti_npy_feature_match_demo.py \
@@ -183,10 +184,10 @@ python tools/kitti_npy_feature_match_demo.py \
 
 `--feature-method` 支持 `sift`、`aliked`、`superpoint`、`sp`
 和 `lightglue_sift`。`sift` 使用 OpenCV SIFT；ALIKED、SuperPoint 和
-LightGlue SIFT 需要安装 `lightglue` 包。特征匹配默认会经过 RANSAC 外点过滤
-（`--outlier-filter fundamental`）；如果加上 `--depth-filter`，会过滤
-source/target 中 depth 无效、太近或太远的匹配点，远距离阈值由 `--max-depth`
-控制。
+LightGlue SIFT 需要安装 `lightglue` 包。这个 demo 不再做两帧图像 descriptor
+matching；它会过滤 source depth 无效或超出范围的特征、投影到 target 图像外的
+特征，以及投影深度和 target depth 差值超过 `--depth-consistency-thresh` 的
+特征。有效深度范围由 `--min-depth` 和 `--max-depth` 控制。
 
 ## 数据集目录结构
 

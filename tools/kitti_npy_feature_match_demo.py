@@ -23,27 +23,15 @@ def image_to_tensor(image: np.ndarray, device: str):
     return tensor.to(device)
 
 
-def lightglue_feature_name(method: str) -> str:
-    method = method.lower()
-    if method == "aliked":
-        return "aliked"
-    if method in {"sp", "superpoint"}:
-        return "superpoint"
-    if method == "lightglue_sift":
-        return "sift"
-    raise ValueError(f"unsupported LightGlue extractor: {method}")
-
-
-def match_lightglue_features(
-    image_src: np.ndarray,
-    image_dst: np.ndarray,
+def extract_lightglue_keypoints(
+    image: np.ndarray,
     method: str,
     max_keypoints: int,
     detection_threshold: float,
     device: str,
 ) -> dict[str, np.ndarray | str]:
     import torch
-    from lightglue import ALIKED, SIFT, LightGlue, SuperPoint
+    from lightglue import ALIKED, SIFT, SuperPoint
 
     method = method.lower()
     if method == "aliked":
@@ -56,72 +44,39 @@ def match_lightglue_features(
         raise ValueError(f"unsupported LightGlue extractor: {method}")
 
     extractor = extractor.to(device).eval()
-    matcher = LightGlue(features=lightglue_feature_name(method)).to(device).eval()
-    image0 = image_to_tensor(image_src, device)
-    image1 = image_to_tensor(image_dst, device)
     with torch.no_grad():
-        feats0 = extractor.extract(image0, invalid_mask=None)
-        feats1 = extractor.extract(image1, invalid_mask=None)
-        pred = matcher({"image0": feats0, "image1": feats1})
+        feats = extractor.extract(image_to_tensor(image, device), invalid_mask=None)
 
-    matches = pred["matches"][0].detach().cpu().numpy().astype(np.int64)
-    if matches.size == 0:
-        raise RuntimeError(f"feature matcher produced no matches: {method}")
-    keypoints0 = feats0["keypoints"][0].detach().cpu().numpy().astype(np.float32)
-    keypoints1 = feats1["keypoints"][0].detach().cpu().numpy().astype(np.float32)
-    scores = pred.get("scores")
+    keypoints = feats["keypoints"][0].detach().cpu().numpy().astype(np.float32)
+    scores = feats.get("keypoint_scores")
     if scores is None:
-        scores_np = np.ones(len(matches), dtype=np.float32)
+        scores = feats.get("scores")
+    if scores is None:
+        score_np = np.ones(len(keypoints), dtype=np.float32)
     else:
-        scores_np = scores[0].detach().cpu().numpy().astype(np.float32)
-    return {
-        "source_xy": keypoints0[matches[:, 0]],
-        "target_xy": keypoints1[matches[:, 1]],
-        "score": scores_np,
-        "method": method,
-    }
+        score_np = scores[0].detach().cpu().numpy().astype(np.float32)
+    if len(keypoints) == 0:
+        raise RuntimeError(f"feature extractor produced no keypoints: {method}")
+    return {"source_xy": keypoints, "score": score_np, "method": method}
 
 
-def match_sift_features(image_src: np.ndarray, image_dst: np.ndarray, max_keypoints: int) -> dict[str, np.ndarray | str]:
+def extract_sift_keypoints(image: np.ndarray, max_keypoints: int) -> dict[str, np.ndarray | str]:
     import cv2
 
-    gray_src = cv2.cvtColor(image_src, cv2.COLOR_RGB2GRAY)
-    gray_dst = cv2.cvtColor(image_dst, cv2.COLOR_RGB2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     sift = cv2.SIFT_create(nfeatures=max_keypoints)
-    keypoints_src, desc_src = sift.detectAndCompute(gray_src, None)
-    keypoints_dst, desc_dst = sift.detectAndCompute(gray_dst, None)
-    if desc_src is None or desc_dst is None or not keypoints_src or not keypoints_dst:
-        raise RuntimeError("SIFT produced no descriptors")
+    keypoints = sift.detect(gray, None)
+    if not keypoints:
+        raise RuntimeError("SIFT produced no keypoints")
 
-    matcher = cv2.BFMatcher(cv2.NORM_L2)
-    knn_matches = matcher.knnMatch(desc_src, desc_dst, k=2)
-    good_matches = []
-    for pair in knn_matches:
-        if len(pair) != 2:
-            continue
-        first, second = pair
-        if first.distance < 0.75 * second.distance:
-            good_matches.append(first)
-    if not good_matches:
-        raise RuntimeError("SIFT produced no ratio-test matches")
-
-    good_matches = sorted(good_matches, key=lambda item: item.distance)[:max_keypoints]
-    src_xy = np.asarray([keypoints_src[item.queryIdx].pt for item in good_matches], dtype=np.float32)
-    dst_xy = np.asarray([keypoints_dst[item.trainIdx].pt for item in good_matches], dtype=np.float32)
-    distance = np.asarray([item.distance for item in good_matches], dtype=np.float32)
-    score = 1.0 / (1.0 + distance)
-    return {
-        "source_xy": src_xy,
-        "target_xy": dst_xy,
-        "score": score.astype(np.float32),
-        "distance": distance,
-        "method": "opencv_sift",
-    }
+    keypoints = sorted(keypoints, key=lambda item: item.response, reverse=True)[:max_keypoints]
+    source_xy = np.asarray([item.pt for item in keypoints], dtype=np.float32)
+    score = np.asarray([item.response for item in keypoints], dtype=np.float32)
+    return {"source_xy": source_xy, "score": score, "method": "opencv_sift"}
 
 
-def match_features(
+def extract_source_features(
     image_src: np.ndarray,
-    image_dst: np.ndarray,
     method: str,
     max_keypoints: int,
     detection_threshold: float,
@@ -129,16 +84,16 @@ def match_features(
 ) -> dict[str, np.ndarray | str]:
     method = method.lower()
     if method == "sift":
-        return match_sift_features(image_src, image_dst, max_keypoints)
+        return extract_sift_keypoints(image_src, max_keypoints)
     if method in {"aliked", "sp", "superpoint", "lightglue_sift"}:
-        return match_lightglue_features(image_src, image_dst, method, max_keypoints, detection_threshold, device)
+        return extract_lightglue_keypoints(image_src, method, max_keypoints, detection_threshold, device)
     raise ValueError(f"unsupported feature method: {method}")
 
 
-def filter_match_arrays(feature_matches: dict[str, np.ndarray | str], keep: np.ndarray) -> dict[str, np.ndarray | str]:
-    count = len(feature_matches["source_xy"])
+def filter_feature_arrays(features: dict[str, np.ndarray | str], keep: np.ndarray) -> dict[str, np.ndarray | str]:
+    count = len(features["source_xy"])
     filtered: dict[str, np.ndarray | str] = {}
-    for key, value in feature_matches.items():
+    for key, value in features.items():
         if isinstance(value, np.ndarray) and value.ndim > 0 and value.shape[0] == count:
             filtered[key] = value[keep]
         else:
@@ -146,129 +101,125 @@ def filter_match_arrays(feature_matches: dict[str, np.ndarray | str], keep: np.n
     return filtered
 
 
-def filter_outliers(
-    feature_matches: dict[str, np.ndarray | str],
-    method: str,
-    threshold: float,
-    confidence: float,
-    max_iters: int,
-) -> tuple[dict[str, np.ndarray | str], dict[str, int | float | str]]:
-    method = method.lower()
-    if method == "none":
-        return feature_matches, {"outlier_filter": "none", "before": int(len(feature_matches["source_xy"])), "after": int(len(feature_matches["source_xy"]))}
-
-    import cv2
-
-    source_xy = np.asarray(feature_matches["source_xy"], dtype=np.float32)
-    target_xy = np.asarray(feature_matches["target_xy"], dtype=np.float32)
-    min_matches = 8 if method == "fundamental" else 4
-    if len(source_xy) < min_matches:
-        raise RuntimeError(f"{method} outlier filter needs at least {min_matches} matches, got {len(source_xy)}")
-
-    if method == "fundamental":
-        _, mask = cv2.findFundamentalMat(
-            source_xy,
-            target_xy,
-            method=cv2.FM_RANSAC,
-            ransacReprojThreshold=threshold,
-            confidence=confidence,
-            maxIters=max_iters,
-        )
-    elif method == "homography":
-        _, mask = cv2.findHomography(
-            source_xy,
-            target_xy,
-            method=cv2.RANSAC,
-            ransacReprojThreshold=threshold,
-            confidence=confidence,
-            maxIters=max_iters,
-        )
-    else:
-        raise ValueError(f"unsupported outlier filter: {method}")
-
-    if mask is None:
-        raise RuntimeError(f"{method} outlier filter failed")
-    keep = mask.reshape(-1).astype(bool)
-    if not keep.any():
-        raise RuntimeError(f"{method} outlier filter removed every match")
-    return filter_match_arrays(feature_matches, keep), {
-        "outlier_filter": method,
-        "before": int(len(source_xy)),
-        "after": int(keep.sum()),
-        "threshold_px": float(threshold),
-    }
-
-
-def require_frame_depth(frame: dict, role: str) -> None:
-    for key in ("depth",):
+def require_geometry_frame(frame: dict, role: str) -> None:
+    for key in ("depth", "camera_intrinsics", "camera_pose"):
         if key not in frame:
-            raise KeyError(f"{role} frame is missing required key for depth filtering: {key}")
+            raise KeyError(f"{role} frame is missing required key for GT projection: {key}")
     if not Path(frame["depth"]).is_file():
         raise FileNotFoundError(f"{role} depth file does not exist: {frame['depth']}")
 
 
-def filter_by_depth(
-    feature_matches: dict[str, np.ndarray | str],
+def project_source_features_with_gt(
+    features: dict[str, np.ndarray | str],
     frame_src: dict,
     frame_dst: dict,
+    image_dst_shape: tuple[int, int],
     min_depth: float,
     max_depth: float,
+    depth_consistency_thresh: float,
 ) -> tuple[dict[str, np.ndarray | str], dict[str, int | float | str]]:
-    require_frame_depth(frame_src, "source")
-    require_frame_depth(frame_dst, "target")
+    require_geometry_frame(frame_src, "source")
+    require_geometry_frame(frame_dst, "target")
 
-    source_xy = np.asarray(feature_matches["source_xy"], dtype=np.float32)
-    target_xy = np.asarray(feature_matches["target_xy"], dtype=np.float32)
+    source_xy = np.asarray(features["source_xy"], dtype=np.float32)
     depth_src = read_kitti_depth(Path(frame_src["depth"]))
     depth_dst = read_kitti_depth(Path(frame_dst["depth"]))
+    intrinsics_src = np.asarray(frame_src["camera_intrinsics"], dtype=np.float64)
+    intrinsics_dst = np.asarray(frame_dst["camera_intrinsics"], dtype=np.float64)
+    pose_src = np.asarray(frame_src["camera_pose"], dtype=np.float64)
+    pose_dst = np.asarray(frame_dst["camera_pose"], dtype=np.float64)
 
-    h1, w1 = depth_src.shape
-    h2, w2 = depth_dst.shape
-    x1 = np.rint(source_xy[:, 0]).astype(np.int64)
-    y1 = np.rint(source_xy[:, 1]).astype(np.int64)
-    x2 = np.rint(target_xy[:, 0]).astype(np.int64)
-    y2 = np.rint(target_xy[:, 1]).astype(np.int64)
+    if intrinsics_src.shape != (3, 3) or intrinsics_dst.shape != (3, 3):
+        raise ValueError("camera_intrinsics must be 3x3")
+    if pose_src.shape != (4, 4) or pose_dst.shape != (4, 4):
+        raise ValueError("camera_pose must be 4x4")
 
-    inside = (x1 >= 0) & (x1 < w1) & (y1 >= 0) & (y1 < h1) & (x2 >= 0) & (x2 < w2) & (y2 >= 0) & (y2 < h2)
-    safe_x1 = np.clip(x1, 0, w1 - 1)
-    safe_y1 = np.clip(y1, 0, h1 - 1)
-    safe_x2 = np.clip(x2, 0, w2 - 1)
-    safe_y2 = np.clip(y2, 0, h2 - 1)
-    source_depth = depth_src[safe_y1, safe_x1]
-    target_depth = depth_dst[safe_y2, safe_x2]
+    h_src, w_src = depth_src.shape
+    h_dst, w_dst = depth_dst.shape
+    image_h_dst, image_w_dst = image_dst_shape
+    if (h_dst, w_dst) != (image_h_dst, image_w_dst):
+        raise ValueError(
+            f"target depth/image shape mismatch: depth={(h_dst, w_dst)} image={(image_h_dst, image_w_dst)}"
+        )
+
+    x_src_round = np.rint(source_xy[:, 0]).astype(np.int64)
+    y_src_round = np.rint(source_xy[:, 1]).astype(np.int64)
+    source_inside = (x_src_round >= 0) & (x_src_round < w_src) & (y_src_round >= 0) & (y_src_round < h_src)
+    safe_x_src = np.clip(x_src_round, 0, w_src - 1)
+    safe_y_src = np.clip(y_src_round, 0, h_src - 1)
+    source_depth = depth_src[safe_y_src, safe_x_src].astype(np.float64)
+    source_depth_valid = (
+        source_inside
+        & np.isfinite(source_depth)
+        & (source_depth > min_depth)
+        & (source_depth <= max_depth)
+    )
+
+    z_src = source_depth
+    x_cam_src = (source_xy[:, 0].astype(np.float64) - intrinsics_src[0, 2]) / intrinsics_src[0, 0] * z_src
+    y_cam_src = (source_xy[:, 1].astype(np.float64) - intrinsics_src[1, 2]) / intrinsics_src[1, 1] * z_src
+    points_src = np.stack((x_cam_src, y_cam_src, z_src, np.ones_like(z_src)), axis=1)
+    points_world = (pose_src @ points_src.T).T
+    points_dst = (np.linalg.inv(pose_dst) @ points_world.T).T[:, :3]
+    projected_depth = points_dst[:, 2]
+
+    target_xy = np.empty((len(source_xy), 2), dtype=np.float64)
+    target_xy[:, 0] = intrinsics_dst[0, 0] * points_dst[:, 0] / projected_depth + intrinsics_dst[0, 2]
+    target_xy[:, 1] = intrinsics_dst[1, 1] * points_dst[:, 1] / projected_depth + intrinsics_dst[1, 2]
+
+    x_dst_round = np.rint(target_xy[:, 0]).astype(np.int64)
+    y_dst_round = np.rint(target_xy[:, 1]).astype(np.int64)
+    target_inside = (x_dst_round >= 0) & (x_dst_round < w_dst) & (y_dst_round >= 0) & (y_dst_round < h_dst)
+    safe_x_dst = np.clip(x_dst_round, 0, w_dst - 1)
+    safe_y_dst = np.clip(y_dst_round, 0, h_dst - 1)
+    target_depth = depth_dst[safe_y_dst, safe_x_dst].astype(np.float64)
+    depth_error = np.abs(projected_depth - target_depth)
 
     keep = (
-        inside
-        & np.isfinite(source_depth)
+        source_depth_valid
+        & np.isfinite(points_dst).all(axis=1)
+        & np.isfinite(target_xy).all(axis=1)
+        & (projected_depth > min_depth)
+        & (projected_depth <= max_depth)
+        & target_inside
         & np.isfinite(target_depth)
-        & (source_depth > min_depth)
         & (target_depth > min_depth)
-        & (source_depth <= max_depth)
         & (target_depth <= max_depth)
+        & np.isfinite(depth_error)
+        & (depth_error <= depth_consistency_thresh)
     )
     if not keep.any():
-        raise RuntimeError("depth filter removed every match")
+        raise RuntimeError("GT projection and depth filter removed every feature")
 
-    filtered = filter_match_arrays(feature_matches, keep)
-    filtered["source_depth_m"] = source_depth[keep].astype(np.float32)
-    filtered["target_depth_m"] = target_depth[keep].astype(np.float32)
-    return filtered, {
-        "depth_range_filter": "enabled",
-        "before": int(len(source_xy)),
-        "after": int(keep.sum()),
+    projected = filter_feature_arrays(features, keep)
+    projected["target_xy"] = target_xy[keep].astype(np.float32)
+    projected["source_depth_m"] = source_depth[keep].astype(np.float32)
+    projected["target_depth_m"] = target_depth[keep].astype(np.float32)
+    projected["projected_target_depth_m"] = projected_depth[keep].astype(np.float32)
+    projected["target_depth_error_m"] = depth_error[keep].astype(np.float32)
+    projected["source_linear"] = (x_src_round[keep] + w_src * y_src_round[keep]).astype(np.int64)
+    return projected, {
+        "projection_filter": "gt_depth_projection",
+        "raw_features": int(len(source_xy)),
+        "source_valid_depth": int(source_depth_valid.sum()),
+        "target_inside": int((source_depth_valid & target_inside).sum()),
+        "after_depth_consistency": int(keep.sum()),
         "min_depth": float(min_depth),
         "max_depth": float(max_depth),
+        "depth_consistency_thresh": float(depth_consistency_thresh),
     }
 
 
-def select_viz_points(source_xy: np.ndarray, target_xy: np.ndarray, stride: int, max_points: int) -> tuple[np.ndarray, np.ndarray]:
+def select_viz_points(source_xy: np.ndarray, target_xy: np.ndarray, stride: int, max_points: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     source_xy = source_xy[::stride]
     target_xy = target_xy[::stride]
+    color_values = np.arange(len(source_xy), dtype=np.float32)
     if len(source_xy) > max_points:
         pick = np.linspace(0, len(source_xy) - 1, max_points).astype(np.int64)
         source_xy = source_xy[pick]
         target_xy = target_xy[pick]
-    return source_xy, target_xy
+        color_values = color_values[pick]
+    return source_xy, target_xy, color_values
 
 
 def draw_crosses(axis, xy: np.ndarray, color_values: np.ndarray, size: float, cmap: str) -> None:
@@ -285,33 +236,33 @@ def draw_crosses(axis, xy: np.ndarray, color_values: np.ndarray, size: float, cm
     axis.vlines(x, y - span, y + span, colors=colors, linewidth=0.8)
 
 
-def visualize_feature_matches(
+def visualize_projected_features(
     image_src: np.ndarray,
     image_dst: np.ndarray,
-    feature_matches: dict[str, np.ndarray | str],
+    features: dict[str, np.ndarray | str],
     output_path: Path,
-    feature_max_points: int,
-    feature_cross_size: float,
+    max_points: int,
+    cross_size: float,
+    stride: int,
 ) -> int:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    feat_src = np.asarray(feature_matches["source_xy"], dtype=np.float32)
-    feat_dst = np.asarray(feature_matches["target_xy"], dtype=np.float32)
-    feat_src, feat_dst = select_viz_points(feat_src, feat_dst, 1, feature_max_points)
-    feat_color = np.arange(len(feat_src), dtype=np.float32)
+    feat_src = np.asarray(features["source_xy"], dtype=np.float32)
+    feat_dst = np.asarray(features["target_xy"], dtype=np.float32)
+    feat_src, feat_dst, feat_color = select_viz_points(feat_src, feat_dst, stride, max_points)
 
-    plt.figure("feature_matches", figsize=[5, 6])
+    plt.figure("feature_gt_projection", figsize=[5, 6])
     ax1 = plt.subplot(2, 1, 1)
     ax1.imshow(image_src)
-    draw_crosses(ax1, feat_src, feat_color, feature_cross_size, "hsv")
+    draw_crosses(ax1, feat_src, feat_color, cross_size, "hsv")
     ax1.tick_params(labelbottom=False, labelleft=False)
 
     ax2 = plt.subplot(2, 1, 2)
     ax2.imshow(image_dst)
-    draw_crosses(ax2, feat_dst, feat_color, feature_cross_size, "hsv")
+    draw_crosses(ax2, feat_dst, feat_color, cross_size, "hsv")
     ax2.tick_params(labelbottom=False, labelleft=False)
 
     plt.tight_layout()
@@ -322,7 +273,7 @@ def visualize_feature_matches(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="KITTI image feature matching demo.")
+    parser = argparse.ArgumentParser(description="KITTI source-feature GT projection demo.")
     parser.add_argument("--index-file", "--table", type=Path, required=True)
     parser.add_argument("--sequence", default=None)
     parser.add_argument("--source-frame", type=int, default=0)
@@ -331,15 +282,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-keypoints", type=int, default=4096)
     parser.add_argument("--detection-threshold", type=float, default=0.005)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--outlier-filter", choices=["none", "fundamental", "homography"], default="fundamental")
-    parser.add_argument("--ransac-thresh", type=float, default=1.0)
-    parser.add_argument("--ransac-confidence", type=float, default=0.999)
-    parser.add_argument("--ransac-max-iters", type=int, default=10000)
-    parser.add_argument("--depth-filter", action="store_true")
     parser.add_argument("--min-depth", type=float, default=0.1)
     parser.add_argument("--max-depth", type=float, default=50.0)
+    parser.add_argument("--depth-consistency-thresh", type=float, default=0.25)
     parser.add_argument("--max-feature-points", type=int, default=1000)
     parser.add_argument("--feature-cross-size", type=float, default=6.0)
+    parser.add_argument("--viz-stride", type=int, default=1)
     parser.add_argument("--output", type=Path, default=Path("outputs/kitti_npy_feature_match_demo/matches.npy"))
     parser.add_argument("--viz-output", type=Path, default=Path("outputs/kitti_npy_feature_match_demo/matches.jpg"))
     return parser
@@ -347,8 +295,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    if args.depth_filter and args.max_depth <= args.min_depth:
+    if args.max_depth <= args.min_depth:
         raise ValueError("--max-depth must be greater than --min-depth")
+    if args.depth_consistency_thresh <= 0:
+        raise ValueError("--depth-consistency-thresh must be positive")
+    if args.viz_stride <= 0:
+        raise ValueError("--viz-stride must be positive")
+
     index = load_index(args.index_file)
     sequence, frames = select_frames(index, args.sequence)
     frame_src = frames[args.source_frame]
@@ -356,56 +309,43 @@ def main() -> int:
 
     image_src_path = Path(frame_src["image"])
     image_dst_path = Path(frame_dst["image"])
-
     image_src = read_rgb(image_src_path)
     image_dst = read_rgb(image_dst_path)
 
-    feature_matches = match_features(
+    source_features = extract_source_features(
         image_src,
-        image_dst,
         args.feature_method,
         args.max_keypoints,
         args.detection_threshold,
         args.device,
     )
-    raw_feature_count = int(len(feature_matches["source_xy"]))
-    filter_stats: list[dict[str, int | float | str]] = []
-    feature_matches, stats = filter_outliers(
-        feature_matches,
-        args.outlier_filter,
-        args.ransac_thresh,
-        args.ransac_confidence,
-        args.ransac_max_iters,
+    raw_feature_count = int(len(source_features["source_xy"]))
+    projected_features, projection_stats = project_source_features_with_gt(
+        source_features,
+        frame_src,
+        frame_dst,
+        image_dst.shape[:2],
+        args.min_depth,
+        args.max_depth,
+        args.depth_consistency_thresh,
     )
-    filter_stats.append(stats)
-    if args.depth_filter:
-        feature_matches, stats = filter_by_depth(
-            feature_matches,
-            frame_src,
-            frame_dst,
-            args.min_depth,
-            args.max_depth,
-        )
-        filter_stats.append(stats)
 
     output = {
         "sequence": sequence,
         "source_frame": frame_src,
         "target_frame": frame_dst,
-        "feature_source_xy": np.asarray(feature_matches["source_xy"], dtype=np.float32),
-        "feature_target_xy": np.asarray(feature_matches["target_xy"], dtype=np.float32),
-        "feature_score": np.asarray(feature_matches["score"], dtype=np.float32),
-        "feature_method": feature_matches["method"],
+        "feature_source_xy": np.asarray(projected_features["source_xy"], dtype=np.float32),
+        "feature_target_xy": np.asarray(projected_features["target_xy"], dtype=np.float32),
+        "feature_score": np.asarray(projected_features["score"], dtype=np.float32),
+        "feature_method": projected_features["method"],
         "raw_feature_count": np.asarray(raw_feature_count, dtype=np.int32),
-        "filter_stats": np.asarray(filter_stats, dtype=object),
-        "matching_style": "feature_matches",
+        "projection_stats": np.asarray(projection_stats, dtype=object),
+        "matching_style": "source_features_gt_depth_projection",
+        "source_depth_m": np.asarray(projected_features["source_depth_m"], dtype=np.float32),
+        "target_depth_m": np.asarray(projected_features["target_depth_m"], dtype=np.float32),
+        "projected_target_depth_m": np.asarray(projected_features["projected_target_depth_m"], dtype=np.float32),
+        "target_depth_error_m": np.asarray(projected_features["target_depth_error_m"], dtype=np.float32),
     }
-    if "distance" in feature_matches:
-        output["feature_distance"] = np.asarray(feature_matches["distance"], dtype=np.float32)
-    if "source_depth_m" in feature_matches:
-        output["source_depth_m"] = np.asarray(feature_matches["source_depth_m"], dtype=np.float32)
-    if "target_depth_m" in feature_matches:
-        output["target_depth_m"] = np.asarray(feature_matches["target_depth_m"], dtype=np.float32)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("wb") as handle:
@@ -413,24 +353,25 @@ def main() -> int:
     cache_dir = args.viz_output.parent / ".matplotlib"
     cache_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(cache_dir))
-    visualized_features = visualize_feature_matches(
+    visualized_features = visualize_projected_features(
         image_src,
         image_dst,
-        feature_matches,
+        projected_features,
         args.viz_output,
         args.max_feature_points,
         args.feature_cross_size,
+        args.viz_stride,
     )
 
     print(f"sequence: {sequence}")
     print(f"source: {frame_src.get('frame_id')} {image_src_path}")
     print(f"target: {frame_dst.get('frame_id')} {image_dst_path}")
-    print(f"feature method: {feature_matches['method']}")
-    print(f"raw feature matches: {raw_feature_count}")
-    print(f"feature matches: {len(feature_matches['source_xy'])}")
-    print(f"filter stats: {filter_stats}")
+    print(f"feature method: {projected_features['method']}")
+    print(f"raw source features: {raw_feature_count}")
+    print(f"projected features: {len(projected_features['source_xy'])}")
+    print(f"projection stats: {projection_stats}")
     print(f"visualized features: {visualized_features}")
-    print(f"saved matches: {args.output}")
+    print(f"saved projected features: {args.output}")
     print(f"saved visualization: {args.viz_output}")
     return 0
 

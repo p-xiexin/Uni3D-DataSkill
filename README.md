@@ -181,9 +181,11 @@ must define `index_file`; if that file does not exist, the builder rebuilds it
 before generating correspondences. Per-dataset outputs are written below a
 label-named subdirectory under `--output-dir`.
 
-For visual feature experiments, `tools/kitti_npy_feature_match_demo.py` is a
-separate image-feature matching demo. It does not run the GT geometry matcher;
-feature matches are rendered as short cross markers:
+For visual feature experiments, `tools/kitti_npy_feature_match_demo.py` extracts
+features from the source image only, uses GT depth, intrinsics, and pose to
+project those feature points into the target image, then filters the projected
+points with target depth consistency. Projected feature correspondences are
+rendered as short cross markers:
 
 ```bash
 python tools/kitti_npy_feature_match_demo.py \
@@ -193,10 +195,12 @@ python tools/kitti_npy_feature_match_demo.py \
 
 `--feature-method` supports `sift`, `aliked`, `superpoint`, `sp`, and
 `lightglue_sift`. OpenCV SIFT is used for `sift`; ALIKED, SuperPoint, and
-LightGlue SIFT require the `lightglue` package. Feature matches are filtered by
-RANSAC by default (`--outlier-filter fundamental`). Add `--depth-filter` to
-also reject matches with invalid, too-near, or too-far source/target depth
-values; tune the far cutoff with `--max-depth`.
+LightGlue SIFT require the `lightglue` package. The demo does not run image
+descriptor matching between the two frames. It rejects source features with
+invalid or out-of-range depth, target projections outside the target image, and
+target projections whose projected depth disagrees with the target depth by more
+than `--depth-consistency-thresh`; tune the valid depth range with
+`--min-depth` and `--max-depth`.
 
 ## Dataset Layouts
 
