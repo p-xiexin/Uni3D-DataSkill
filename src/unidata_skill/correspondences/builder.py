@@ -11,9 +11,9 @@ from tqdm import tqdm
 from unidata_skill.config import DatasetConfig, load_dataset_configs
 
 from .dataset_views import construct_dataset, frame_label, iter_frame_pairs, iter_sequences, jsonable_args, load_pair_views, sanitize
-from .features import feature_positives
+from .features import feature_positives, has_real_depth
 from .geometry import geometry_positives
-from .sampling import PairSkip, empty_positive, make_arrays, stride_positive, union_positives
+from .corres import PairSkip, empty_positive, make_arrays, stride_positive, union_positives
 from .writer import write_json, write_pair
 
 
@@ -21,13 +21,18 @@ def build_corres(view1: dict, view2: dict, args: argparse.Namespace) -> tuple[di
     geom = empty_positive()
     feat = empty_positive()
     stats = {}
-    if args.source in {"geom", "mixed"}:
+    real_depth = has_real_depth(view1) and has_real_depth(view2)
+    if args.source in {"geom", "mixed"} and real_depth:
         geom, stats["geom"] = geometry_positives(view1, view2, args)
         raw_geom_count = len(geom["corres1"])
         geom = stride_positive(geom, args.geom_stride)
         stats["geom"]["after_geom_stride"] = int(len(geom["corres1"]))
         stats["geom"]["geom_stride"] = int(args.geom_stride)
         stats["geom"]["before_geom_stride"] = int(raw_geom_count)
+    elif args.source == "geom":
+        raise PairSkip("missing_real_depth_for_geom")
+    elif args.source == "mixed":
+        stats["geom"] = {"skipped": "missing_real_depth"}
     if args.source in {"feat", "mixed"}:
         try:
             feat, stats["feat"] = feature_positives(view1, view2, args)
@@ -38,6 +43,8 @@ def build_corres(view1: dict, view2: dict, args: argparse.Namespace) -> tuple[di
     if args.source == "geom":
         return geom, stats, {"geom": geom, "feat": feat, "merged": geom}
     if args.source == "feat":
+        return feat, stats, {"geom": geom, "feat": feat, "merged": feat}
+    if not real_depth:
         return feat, stats, {"geom": geom, "feat": feat, "merged": feat}
     merged, counts = union_positives(geom, feat, np.asarray(view1["depthmap"]).shape, np.asarray(view2["depthmap"]).shape)
     stats["union"] = counts
@@ -142,6 +149,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--depth-consistency-thresh", type=float, default=0.25)
     parser.add_argument("--feature-method", choices=["sift", "aliked", "superpoint", "sp", "lightglue_sift"], default="sift")
     parser.add_argument("--max-keypoints", type=int, default=4096)
+    parser.add_argument("--match-ratio", type=float, default=0.75, help="Lowe ratio for no-depth SIFT matching.")
     parser.add_argument("--detection-threshold", type=float, default=0.005)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--geom-stride", type=int, default=10, help="Keep every Nth geom point before union/save/viz. Feat points are not affected.")
@@ -159,6 +167,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-depth must be greater than --min-depth")
     if args.depth_consistency_thresh <= 0:
         raise ValueError("--depth-consistency-thresh must be positive")
+    if not 0 < args.match_ratio < 1:
+        raise ValueError("--match-ratio must be in (0, 1)")
     for key in ("frame_gap", "max_keypoints", "geom_stride", "viz_stride", "max_viz_points"):
         if getattr(args, key) <= 0:
             raise ValueError(f"--{key.replace('_', '-')} must be positive")

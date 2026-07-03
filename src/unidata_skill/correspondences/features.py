@@ -7,7 +7,22 @@ import numpy as np
 
 from .dataset_views import as_image_array
 from .geometry import to_numpy
-from .sampling import PairSkip, make_positive
+from .corres import PairSkip, make_positive
+
+
+PLACEHOLDER_DEPTH_SOURCES = {"placeholder_missing_dense_depth"}
+
+
+def has_real_depth(view: dict[str, Any]) -> bool:
+    if view.get("depth_source") in PLACEHOLDER_DEPTH_SOURCES:
+        return False
+    if "depthmap" not in view:
+        return False
+    try:
+        depth = np.asarray(view["depthmap"], dtype=np.float32)
+    except (TypeError, ValueError):
+        return False
+    return depth.ndim == 2 and np.isfinite(depth).any() and np.any(depth > 0)
 
 
 def image_to_tensor(image: np.ndarray, device: str):
@@ -58,8 +73,65 @@ def extract_features(image: np.ndarray, args: argparse.Namespace) -> tuple[np.nd
     return xy, score, method
 
 
+def extract_sift_for_matching(image: np.ndarray, args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    import cv2
+
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    detector = cv2.SIFT_create(nfeatures=args.max_keypoints)
+    keypoints, descriptors = detector.detectAndCompute(gray, None)
+    if not keypoints or descriptors is None:
+        raise PairSkip("feature_extractor_empty:sift")
+    order = np.argsort([-item.response for item in keypoints])[: args.max_keypoints]
+    keypoints = [keypoints[int(index)] for index in order]
+    descriptors = descriptors[order]
+    xy = np.asarray([item.pt for item in keypoints], dtype=np.float32)
+    scores = np.asarray([item.response for item in keypoints], dtype=np.float32)
+    return xy, descriptors.astype(np.float32), scores
+
+
+def match_features_without_depth(view1: dict[str, Any], view2: dict[str, Any], args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    if args.feature_method.lower() != "sift":
+        raise PairSkip(f"missing_real_depth_for_feat_projection:{args.feature_method}")
+
+    import cv2
+
+    image1 = as_image_array(view1["img"])
+    image2 = as_image_array(view2["img"])
+    xy1, desc1, score1 = extract_sift_for_matching(image1, args)
+    xy2, desc2, _score2 = extract_sift_for_matching(image2, args)
+    matcher = cv2.BFMatcher(cv2.NORM_L2)
+    pairs = matcher.knnMatch(desc1, desc2, k=2)
+    keep = []
+    ratio = float(args.match_ratio)
+    for pair in pairs:
+        if len(pair) != 2:
+            continue
+        best, second = pair
+        if best.distance < ratio * second.distance:
+            keep.append(best)
+    if not keep:
+        raise PairSkip("feature_matcher_empty:sift")
+    keep = sorted(keep, key=lambda item: item.distance)
+    src = np.asarray([xy1[item.queryIdx] for item in keep], dtype=np.float32)
+    dst = np.asarray([xy2[item.trainIdx] for item in keep], dtype=np.float32)
+    descriptor_distance = np.asarray([item.distance for item in keep], dtype=np.float32)
+    confidence = 1.0 / np.maximum(descriptor_distance, 1e-6)
+    positives = make_positive(src, dst, np.full(len(src), np.nan, dtype=np.float32), "feat", feature_score=confidence)
+    return positives, {
+        "method": "opencv_sift",
+        "matching_style": "descriptor_matching_no_depth",
+        "raw_source_features": int(len(xy1)),
+        "raw_target_features": int(len(xy2)),
+        "after_filter": int(len(src)),
+        "match_ratio": ratio,
+    }
+
+
 def feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     view1, view2 = to_numpy((view1, view2))
+    if not (has_real_depth(view1) and has_real_depth(view2)):
+        return match_features_without_depth(view1, view2, args)
+
     image = as_image_array(view1["img"])
     xy1, score, method = extract_features(image, args)
     depth1 = np.asarray(view1["depthmap"], dtype=np.float32)
@@ -125,6 +197,7 @@ def feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpar
     positives["source_linear"] = (x_src_round[keep] + w1 * y_src_round[keep]).astype(np.int64)
     return positives, {
         "method": method,
+        "matching_style": "source_features_gt_depth_projection",
         "projection_filter": "gt_depth_projection",
         "raw": int(len(xy1)),
         "raw_features": int(len(xy1)),

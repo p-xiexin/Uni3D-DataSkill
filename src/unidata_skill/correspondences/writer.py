@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from .dataset_views import as_image_array, sanitize
-from .sampling import SOURCE_CODE, SOURCE_NAMES
+from .corres import SOURCE_CODE, SOURCE_NAMES
 
 
 def select_viz_points(pos1: np.ndarray, pos2: np.ndarray, codes: np.ndarray, args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -94,9 +94,9 @@ def feature_demo_fields(viz_positives: dict[str, dict[str, np.ndarray]], stats: 
         "feat_target_xy": np.asarray(feat["corres2"], dtype=np.float32),
         "feat_score_raw": np.asarray(feat["feature_score"], dtype=np.float32),
         "feat_method": np.asarray(stats.get("feat", {}).get("method", "")),
-        "raw_feat_count": np.asarray(stats.get("feat", {}).get("raw_features", len(feat["corres1"])), dtype=np.int32),
+        "raw_feat_count": np.asarray(stats.get("feat", {}).get("raw_features", stats.get("feat", {}).get("raw_source_features", len(feat["corres1"]))), dtype=np.int32),
         "feat_stats": np.asarray(stats.get("feat", {}), dtype=object),
-        "matching_style": np.asarray("source_features_gt_depth_projection"),
+        "matching_style": np.asarray(stats.get("feat", {}).get("matching_style", "source_features_gt_depth_projection")),
         "feat_depth_err": np.asarray(feat["target_depth_error_m"], dtype=np.float32),
     }
     depth_fields = {

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from .cropping import extract_correspondences_from_pts3d, to_numpy
-from .sampling import make_positive
+from .corres import make_positive
 
 
 def camera_points_from_depth(depth: np.ndarray, intrinsics: np.ndarray) -> np.ndarray:

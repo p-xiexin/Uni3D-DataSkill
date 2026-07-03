@@ -184,7 +184,11 @@ filtering. In `mixed` mode, geom and feat correspondences are unioned; duplicate
 pairs are marked as `both`. Geom correspondences are thinned before
 union/saving/visualization with `--geom-stride 10` by default; feat
 correspondences are not affected. The builder writes all remaining
-correspondences. Add `--no-visualization`
+correspondences. If either view has no real depth, or the dataloader marks depth
+as `placeholder_missing_dense_depth`, `mixed` skips `geom` and uses the `feat`
+path only. In that no-depth mode, the default SIFT feat path uses descriptor
+matching with `--match-ratio 0.75`; GT projection is used only when real depth is
+available. Add `--no-visualization`
 when building arrays in an environment without Matplotlib or when image previews
 are not needed. Visualization uses filtered correspondences and
 defaults to `--viz-stride 1`, matching the feature projection demo. Pairs are
