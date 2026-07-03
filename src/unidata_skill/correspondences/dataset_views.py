@@ -108,6 +108,24 @@ def iter_frame_pairs(frame_count: int, frame_gap: int):
         yield source_idx, target_idx
 
 
+def frame_label(frame: dict[str, Any], fallback: int) -> str:
+    parts = []
+    for key in ("camera_id", "channel", "camera", "sensor"):
+        if frame.get(key) is not None:
+            parts.append(str(frame[key]))
+            break
+    for key in ("frame_id", "timestamp", "image_id", "token"):
+        if frame.get(key) is not None:
+            parts.append(str(frame[key]))
+            break
+    if not parts:
+        for key in ("image", "color", "preview", "depth"):
+            if frame.get(key):
+                parts.append(Path(str(frame[key])).stem)
+                break
+    return sanitize("_".join(parts) if parts else f"{fallback:06d}")
+
+
 def as_image_array(image: Any) -> np.ndarray:
     if isinstance(image, Image.Image):
         return np.asarray(image.convert("RGB"))

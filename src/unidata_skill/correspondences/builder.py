@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from unidata_skill.config import DatasetConfig, load_dataset_configs
 
-from .dataset_views import construct_dataset, iter_frame_pairs, iter_sequences, jsonable_args, load_pair_views, sanitize
+from .dataset_views import construct_dataset, frame_label, iter_frame_pairs, iter_sequences, jsonable_args, load_pair_views, sanitize
 from .features import feature_positives
 from .geometry import geometry_positives
 from .sampling import PairSkip, empty_positive, make_arrays, union_positives
@@ -49,38 +49,63 @@ def process_config(config: DatasetConfig, args: argparse.Namespace, rng: np.rand
     manifest_path = output_dir / "manifest.jsonl"
     skipped: Counter[str] = Counter()
     totals: Counter[str] = Counter()
+    planned_pairs = sum(max(0, len(sequence.frames) - args.frame_gap) for sequence in sequences)
 
     with manifest_path.open("w", encoding="utf-8") as handle:
-        for sequence in tqdm(sequences, desc=config.label, unit="sequence"):
-            if len(sequence.frames) < 2:
-                skipped[f"{sequence.sequence_id}:fewer_than_two_frames"] += 1
-                continue
-            for source_idx, target_idx in iter_frame_pairs(len(sequence.frames), args.frame_gap):
-                totals["total_pairs"] += 1
-                try:
-                    views = load_pair_views(dataset, sequence, source_idx, target_idx, args)
-                    if len(views) != 2:
-                        raise PairSkip(f"loaded_pair_view_count:{len(views)}")
-                    positives, positive_stats = build_positives(views[0], views[1], args)
-                    arrays = make_arrays(positives, views[0], views[1], args, rng)
-                    manifest, counts = write_pair(sequence.index, source_idx, target_idx, views[0], views[1], arrays, positive_stats, output_dir, args)
-                except PairSkip as exc:
-                    skipped[str(exc)] += 1
+        pair_bar = tqdm(total=planned_pairs, desc=config.label, unit="pair")
+        try:
+            for sequence in sequences:
+                if len(sequence.frames) < 2:
+                    skipped[f"{sequence.sequence_id}:fewer_than_two_frames"] += 1
                     continue
-                except Exception as exc:
-                    skipped[f"load_or_process_pair:{exc}"] += 1
-                    continue
-                handle.write(json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n")
-                totals["success_pairs"] += 1
-                totals["sampled_geometry_positive"] += counts["geometry"]
-                totals["sampled_feature_positive"] += counts["feature"]
-                totals["sampled_both_positive"] += counts["both"]
+                for source_idx, target_idx in iter_frame_pairs(len(sequence.frames), args.frame_gap):
+                    totals["total_pairs"] += 1
+                    source_id = frame_label(sequence.frames[source_idx], source_idx)
+                    target_id = frame_label(sequence.frames[target_idx], target_idx)
+                    try:
+                        views = load_pair_views(dataset, sequence, source_idx, target_idx, args)
+                        if len(views) != 2:
+                            raise PairSkip(f"loaded_pair_view_count:{len(views)}")
+                        positives, positive_stats = build_positives(views[0], views[1], args)
+                        arrays = make_arrays(positives, views[0], views[1], args, rng)
+                        manifest, counts = write_pair(
+                            sequence.index,
+                            sequence.sequence_id,
+                            source_id,
+                            target_id,
+                            views[0],
+                            views[1],
+                            arrays,
+                            positive_stats,
+                            output_dir,
+                            args,
+                        )
+                    except PairSkip as exc:
+                        skipped[str(exc)] += 1
+                        pair_bar.update(1)
+                        pair_bar.set_postfix(success=totals["success_pairs"], skipped=sum(skipped.values()))
+                        continue
+                    except Exception as exc:
+                        skipped[f"load_or_process_pair:{exc}"] += 1
+                        pair_bar.update(1)
+                        pair_bar.set_postfix(success=totals["success_pairs"], skipped=sum(skipped.values()))
+                        continue
+                    handle.write(json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n")
+                    totals["success_pairs"] += 1
+                    totals["sampled_geometry_positive"] += counts["geometry"]
+                    totals["sampled_feature_positive"] += counts["feature"]
+                    totals["sampled_both_positive"] += counts["both"]
+                    pair_bar.update(1)
+                    pair_bar.set_postfix(success=totals["success_pairs"], skipped=sum(skipped.values()))
+        finally:
+            pair_bar.close()
 
     summary = {
         "label": config.label,
         "dataset": config.dataset,
         "output_dir": str(output_dir),
         "sequences": int(len(sequences)),
+        "planned_pairs": int(planned_pairs),
         "total_pairs": int(totals["total_pairs"]),
         "success_pairs": int(totals["success_pairs"]),
         "skipped_pairs": int(totals["total_pairs"] - totals["success_pairs"]),
@@ -110,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-depth", type=float, default=0.1)
     parser.add_argument("--max-depth", type=float, default=50.0)
     parser.add_argument("--depth-consistency-thresh", type=float, default=0.25)
+    parser.add_argument("--geometry-device", default="cpu", help="Device for dense geometry projection, for example cpu or cuda.")
+    parser.add_argument("--geometry-stride", type=int, default=1, help="Stride for dense geometry source pixels before depth filtering.")
     parser.add_argument("--feature-method", choices=["sift", "aliked", "superpoint", "sp", "lightglue_sift"], default="sift")
     parser.add_argument("--max-keypoints", type=int, default=4096)
     parser.add_argument("--detection-threshold", type=float, default=0.005)
@@ -134,9 +161,17 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-depth must be greater than --min-depth")
     if args.depth_consistency_thresh <= 0:
         raise ValueError("--depth-consistency-thresh must be positive")
-    for key in ("frame_gap", "max_keypoints", "save_stride", "viz_stride", "max_viz_points"):
+    for key in ("frame_gap", "geometry_stride", "max_keypoints", "save_stride", "viz_stride", "max_viz_points"):
         if getattr(args, key) <= 0:
             raise ValueError(f"--{key.replace('_', '-')} must be positive")
+    if args.geometry_device != "cpu":
+        try:
+            import torch
+        except ImportError as exc:
+            raise ValueError("--geometry-device requires torch when it is not cpu") from exc
+        device = torch.device(args.geometry_device)
+        if device.type == "cuda" and not torch.cuda.is_available():
+            raise ValueError(f"--geometry-device {args.geometry_device!r} requested CUDA, but torch.cuda.is_available() is false")
 
 
 def main() -> int:

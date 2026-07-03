@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from .dataset_views import as_image_array, sanitize, view_id
+from .dataset_views import as_image_array, sanitize
 from .sampling import SOURCE_CODE, SOURCE_NAMES
 
 
@@ -46,9 +46,10 @@ def visualize(image1: np.ndarray, image2: np.ndarray, arrays: dict[str, np.ndarr
 
 
 def write_pair(
-    sample_idx: int,
-    source_view_idx: int,
-    target_view_idx: int,
+    sequence_index: int,
+    sequence_id: str,
+    source_id: str,
+    target_id: str,
     view1: dict[str, Any],
     view2: dict[str, Any],
     arrays: dict[str, np.ndarray],
@@ -56,12 +57,12 @@ def write_pair(
     output_dir: Path,
     args: argparse.Namespace,
 ) -> tuple[dict[str, Any], dict[str, int]]:
-    source_id = view_id(view1, source_view_idx)
-    target_id = view_id(view2, target_view_idx)
-    sequence_id = sanitize(view1.get("label", f"sample_{sample_idx:06d}"))
-    pair_name = f"{sample_idx:06d}_{source_id}__{target_id}"
-    pair_path = output_dir / "pairs" / sequence_id / f"{pair_name}.npz"
-    viz_path = output_dir / "visualizations" / sequence_id / f"{pair_name}.jpg"
+    sequence_part = sanitize(sequence_id)
+    source_part = sanitize(source_id)
+    target_part = sanitize(target_id)
+    pair_name = f"{sequence_index:06d}_{sequence_part}__{source_part}__{target_part}"
+    pair_path = output_dir / "pairs" / sequence_part / f"{pair_name}.npz"
+    viz_path = output_dir / "visualizations" / sequence_part / f"{pair_name}.jpg"
     image1 = as_image_array(view1["img"])
     image2 = as_image_array(view2["img"])
     visualized = 0 if args.no_visualization else visualize(image1, image2, arrays, viz_path, args)
@@ -70,9 +71,9 @@ def write_pair(
     np.savez_compressed(
         pair_path,
         **arrays,
-        sequence_id=np.asarray(sequence_id),
-        source_frame_id=np.asarray(source_id),
-        target_frame_id=np.asarray(target_id),
+        sequence_id=np.asarray(sequence_part),
+        source_frame_id=np.asarray(source_part),
+        target_frame_id=np.asarray(target_part),
         source_image=np.asarray(str(view1.get("image_path", ""))),
         target_image=np.asarray(str(view2.get("image_path", ""))),
         image_paths=np.asarray([str(view1.get("image_path", "")), str(view2.get("image_path", ""))]),
@@ -94,9 +95,9 @@ def write_pair(
     manifest = {
         "pair_path": str(pair_path.relative_to(output_dir)),
         "viz_path": None if args.no_visualization else str(viz_path.relative_to(output_dir)),
-        "sequence_id": sequence_id,
-        "source_frame_id": source_id,
-        "target_frame_id": target_id,
+        "sequence_id": sequence_part,
+        "source_frame_id": source_part,
+        "target_frame_id": target_part,
         "source_image": str(view1.get("image_path", "")),
         "target_image": str(view2.get("image_path", "")),
         "num_corres": int(len(arrays["valid_corres"])),
@@ -114,4 +115,3 @@ def write_pair(
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
-

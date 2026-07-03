@@ -163,6 +163,10 @@ python tools/build_correspondence_dataset.py \
   --frame-gap 1
 ```
 
+Dense geometry 默认仍在 CPU 上运行；如果要把投影和深度过滤放到 GPU，
+可以显式传 `--geometry-device cuda`。如果全分辨率 dense 投影太慢，可以用
+`--geometry-stride <N>` 先按 source 像素 stride 降采样，再做投影和过滤。
+
 可以用 `--positive-source geometry`、`--positive-source features` 或默认的
 `--positive-source mixed` 选择正样本来源。feature 路径默认使用
 `--feature-method sift`，也支持单 pair feature projection demo 里的同一组
