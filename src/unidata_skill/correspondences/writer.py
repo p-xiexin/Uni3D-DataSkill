@@ -32,8 +32,8 @@ def draw_crosses(axis, xy: np.ndarray, color_values: np.ndarray, size: float = 6
     import matplotlib.pyplot as plt
 
     colors = plt.get_cmap(cmap)(norm)
-    axis.hlines(y, x - span, x + span, colors=colors, linewidth=0.8)
-    axis.vlines(x, y - span, y + span, colors=colors, linewidth=0.8)
+    axis.hlines(y, x - span, x + span, colors=colors, linewidth=1.2)
+    axis.vlines(x, y - span, y + span, colors=colors, linewidth=1.2)
 
 
 def draw_source_aware_points(axis, xy: np.ndarray, codes: np.ndarray, color_values: np.ndarray) -> None:  # noqa: ANN001
@@ -49,7 +49,14 @@ def draw_source_aware_points(axis, xy: np.ndarray, codes: np.ndarray, color_valu
         draw_crosses(axis, xy[both], color_values[both], size=7.0, cmap="hsv")
 
 
-def visualize(image1: np.ndarray, image2: np.ndarray, arrays: dict[str, np.ndarray], path: Path, args: argparse.Namespace) -> int:
+def positives_to_viz_arrays(viz_positives: dict[str, dict[str, np.ndarray]], args: argparse.Namespace) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    source = viz_positives.get("merged", {})
+    if len(source.get("corres1", [])) == 0:
+        return np.empty((0, 2), dtype=np.float32), np.empty((0, 2), dtype=np.float32), np.empty((0,), dtype=np.int8)
+    return select_viz_points(source["corres1"], source["corres2"], source["source_code"], args)
+
+
+def visualize(image1: np.ndarray, image2: np.ndarray, viz_positives: dict[str, dict[str, np.ndarray]], path: Path, args: argparse.Namespace) -> int:
     cache_dir = path.parent / ".matplotlib"
     cache_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(cache_dir))
@@ -58,8 +65,7 @@ def visualize(image1: np.ndarray, image2: np.ndarray, arrays: dict[str, np.ndarr
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    valid = arrays["valid_corres"]
-    pos1, pos2, codes = select_viz_points(arrays["corres1"][valid], arrays["corres2"][valid], arrays["positive_source_code"][valid], args)
+    pos1, pos2, codes = positives_to_viz_arrays(viz_positives, args)
     colors = pos1[:, 0].astype(np.float32) + image1.shape[1] * pos1[:, 1].astype(np.float32) if len(pos1) else np.empty((0,), dtype=np.float32)
     plt.figure("correspondence_dataset", figsize=(5, 6))
     ax1 = plt.subplot(2, 1, 1)
@@ -87,6 +93,7 @@ def write_pair(
     view1: dict[str, Any],
     view2: dict[str, Any],
     arrays: dict[str, np.ndarray],
+    viz_positives: dict[str, dict[str, np.ndarray]],
     positive_stats: dict[str, Any],
     output_dir: Path,
     args: argparse.Namespace,
@@ -99,7 +106,7 @@ def write_pair(
     viz_path = output_dir / "visualizations" / sequence_part / f"{pair_name}.jpg"
     image1 = as_image_array(view1["img"])
     image2 = as_image_array(view2["img"])
-    visualized = 0 if args.no_visualization else visualize(image1, image2, arrays, viz_path, args)
+    visualized = 0 if args.no_visualization else visualize(image1, image2, viz_positives, viz_path, args)
 
     pair_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(

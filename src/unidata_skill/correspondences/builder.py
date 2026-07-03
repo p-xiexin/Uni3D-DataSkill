@@ -17,7 +17,7 @@ from .sampling import PairSkip, empty_positive, make_arrays, union_positives
 from .writer import write_json, write_pair
 
 
-def build_positives(view1: dict, view2: dict, args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict]:
+def build_positives(view1: dict, view2: dict, args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict, dict[str, dict[str, np.ndarray]]]:
     geometry = empty_positive()
     feature = empty_positive()
     stats = {}
@@ -31,12 +31,12 @@ def build_positives(view1: dict, view2: dict, args: argparse.Namespace) -> tuple
                 raise
             stats["feature"] = {"error": str(exc), "after_filter": 0}
     if args.positive_source == "geometry":
-        return geometry, stats
+        return geometry, stats, {"geometry": geometry, "feature": feature, "merged": geometry}
     if args.positive_source == "features":
-        return feature, stats
+        return feature, stats, {"geometry": geometry, "feature": feature, "merged": feature}
     merged, counts = union_positives(geometry, feature, np.asarray(view1["depthmap"]).shape, np.asarray(view2["depthmap"]).shape)
     stats["union"] = counts
-    return merged, stats
+    return merged, stats, {"geometry": geometry, "feature": feature, "merged": merged}
 
 
 def process_config(config: DatasetConfig, args: argparse.Namespace, rng: np.random.Generator) -> dict:
@@ -66,7 +66,7 @@ def process_config(config: DatasetConfig, args: argparse.Namespace, rng: np.rand
                         views = load_pair_views(dataset, sequence, source_idx, target_idx, args)
                         if len(views) != 2:
                             raise PairSkip(f"loaded_pair_view_count:{len(views)}")
-                        positives, positive_stats = build_positives(views[0], views[1], args)
+                        positives, positive_stats, viz_positives = build_positives(views[0], views[1], args)
                         arrays = make_arrays(positives, views[0], views[1], args, rng)
                         manifest, counts = write_pair(
                             sequence.index,
@@ -76,6 +76,7 @@ def process_config(config: DatasetConfig, args: argparse.Namespace, rng: np.rand
                             views[0],
                             views[1],
                             arrays,
+                            viz_positives,
                             positive_stats,
                             output_dir,
                             args,
@@ -136,8 +137,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-depth", type=float, default=0.1)
     parser.add_argument("--max-depth", type=float, default=50.0)
     parser.add_argument("--depth-consistency-thresh", type=float, default=0.25)
-    parser.add_argument("--geometry-device", default="cpu", help="Device for dense geometry projection, for example cpu or cuda.")
-    parser.add_argument("--geometry-stride", type=int, default=1, help="Stride for dense geometry source pixels before depth filtering.")
     parser.add_argument("--feature-method", choices=["sift", "aliked", "superpoint", "sp", "lightglue_sift"], default="sift")
     parser.add_argument("--max-keypoints", type=int, default=4096)
     parser.add_argument("--detection-threshold", type=float, default=0.005)
@@ -162,17 +161,9 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-depth must be greater than --min-depth")
     if args.depth_consistency_thresh <= 0:
         raise ValueError("--depth-consistency-thresh must be positive")
-    for key in ("frame_gap", "geometry_stride", "max_keypoints", "save_stride", "viz_stride", "max_viz_points"):
+    for key in ("frame_gap", "max_keypoints", "save_stride", "viz_stride", "max_viz_points"):
         if getattr(args, key) <= 0:
             raise ValueError(f"--{key.replace('_', '-')} must be positive")
-    if args.geometry_device != "cpu":
-        try:
-            import torch
-        except ImportError as exc:
-            raise ValueError("--geometry-device requires torch when it is not cpu") from exc
-        device = torch.device(args.geometry_device)
-        if device.type == "cuda" and not torch.cuda.is_available():
-            raise ValueError(f"--geometry-device {args.geometry_device!r} requested CUDA, but torch.cuda.is_available() is false")
 
 
 def main() -> int:

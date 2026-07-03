@@ -179,11 +179,10 @@ python tools/build_correspondence_dataset.py \
 Use `--positive-source geometry`, `--positive-source features`, or the default
 `--positive-source mixed` to choose the positive source. The feature path uses
 `--feature-method sift` by default and supports the same extractor names as the
-single-pair feature projection demo. Tune `--depth-consistency-thresh` for
-projection/depth filtering. Dense geometry uses CPU by default; pass
-`--geometry-device cuda` to run the projection/filtering tensors on GPU, and
-use `--geometry-stride <N>` to project every N-th source pixel before filtering
-when full-resolution dense projection is too slow. In `mixed` mode, geometry and feature positives are unioned;
+single-pair feature projection demo. Geometry uses the reciprocal
+`cropping.extract_correspondences_from_pts3d` flow from the cropping demo.
+Tune `--depth-consistency-thresh` for feature depth filtering and geometry
+3D-distance filtering. In `mixed` mode, geometry and feature positives are unioned;
 duplicate pairs are marked as `both`, and sampling keeps feature-related
 positives from being drowned out by dense geometry positives. By default, the
 builder writes the requested sampled correspondence count. Use

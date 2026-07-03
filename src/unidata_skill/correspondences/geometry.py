@@ -5,27 +5,35 @@ from typing import Any
 
 import numpy as np
 
-from .sampling import PairSkip, make_positive
+from .cropping import extract_correspondences_from_pts3d, to_numpy
+from .sampling import make_positive
 
 
-def to_numpy(values):
-    if isinstance(values, tuple):
-        return tuple(to_numpy(value) for value in values)
-    if isinstance(values, list):
-        return [to_numpy(value) for value in values]
-    if isinstance(values, dict):
-        return {key: to_numpy(value) for key, value in values.items()}
-    if hasattr(values, "detach"):
-        return values.detach().cpu().numpy()
-    return values
+def camera_points_from_depth(depth: np.ndarray, intrinsics: np.ndarray) -> np.ndarray:
+    height, width = depth.shape
+    y, x = np.indices((height, width), dtype=np.float32)
+    z = depth.astype(np.float32)
+    points = np.empty((height, width, 3), dtype=np.float32)
+    points[..., 0] = (x - intrinsics[0, 2]) / intrinsics[0, 0] * z
+    points[..., 1] = (y - intrinsics[1, 2]) / intrinsics[1, 1] * z
+    points[..., 2] = z
+    return points
 
 
-def pixel_to_linear(xy: np.ndarray, width: int) -> np.ndarray:
-    return xy[:, 0].astype(np.int64) + width * xy[:, 1].astype(np.int64)
+def world_points_from_depth(depth: np.ndarray, intrinsics: np.ndarray, camera_pose: np.ndarray) -> np.ndarray:
+    height, width = depth.shape
+    camera_points = camera_points_from_depth(depth, intrinsics).reshape(-1, 3)
+    homogeneous = np.concatenate((camera_points, np.ones((camera_points.shape[0], 1), dtype=np.float32)), axis=1)
+    world_points = (camera_pose.astype(np.float64) @ homogeneous.T).T[:, :3]
+    return world_points.astype(np.float32).reshape(height, width, 3)
 
 
-def pair_key(corres1: np.ndarray, corres2: np.ndarray, width1: int, width2: int, height2: int) -> np.ndarray:
-    return pixel_to_linear(corres1, width1) * np.int64(width2 * height2) + pixel_to_linear(corres2, width2)
+def camera_points_from_world(world_points: np.ndarray, camera_pose: np.ndarray) -> np.ndarray:
+    height, width, _ = world_points.shape
+    flat = world_points.reshape(-1, 3)
+    homogeneous = np.concatenate((flat, np.ones((flat.shape[0], 1), dtype=np.float32)), axis=1)
+    camera_points = (np.linalg.inv(camera_pose.astype(np.float64)) @ homogeneous.T).T[:, :3]
+    return camera_points.astype(np.float32).reshape(height, width, 3)
 
 
 def project_pixels_between_views_numpy(
@@ -104,105 +112,6 @@ def project_pixels_between_views_numpy(
     return source_xy_float.astype(np.float32), target_xy_float.astype(np.float32), depth_error, keep, stats
 
 
-def geometry_positives_numpy(
-    depth1: np.ndarray,
-    depth2: np.ndarray,
-    k1: np.ndarray,
-    k2: np.ndarray,
-    pose1: np.ndarray,
-    pose2: np.ndarray,
-    args: argparse.Namespace,
-) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-    h1, w1 = depth1.shape
-    y1, x1 = np.indices((h1, w1), dtype=np.int64)
-    if args.geometry_stride > 1:
-        y1 = y1[:: args.geometry_stride, :: args.geometry_stride]
-        x1 = x1[:: args.geometry_stride, :: args.geometry_stride]
-
-    source_xy = np.stack((x1.reshape(-1), y1.reshape(-1)), axis=1)
-    source_xy, target_xy, depth_error, keep, stats = project_pixels_between_views_numpy(source_xy, depth1, depth2, k1, k2, pose1, pose2, args)
-    positives = make_positive(source_xy[keep], target_xy[keep], depth_error[keep], "geometry", depth_error=depth_error[keep])
-    stats["raw"] = int(len(source_xy))
-    return positives, stats
-
-
-def geometry_positives_torch(
-    depth1: np.ndarray,
-    depth2: np.ndarray,
-    k1: np.ndarray,
-    k2: np.ndarray,
-    pose1: np.ndarray,
-    pose2: np.ndarray,
-    args: argparse.Namespace,
-) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-    try:
-        import torch
-    except ImportError as exc:
-        raise PairSkip("torch_required_for_geometry_device") from exc
-
-    device = torch.device(args.geometry_device)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        raise PairSkip(f"cuda_unavailable_for_geometry_device:{args.geometry_device}")
-
-    depth1_t = torch.as_tensor(depth1, dtype=torch.float32, device=device)
-    depth2_t = torch.as_tensor(depth2, dtype=torch.float32, device=device)
-    k1_t = torch.as_tensor(k1, dtype=torch.float32, device=device)
-    k2_t = torch.as_tensor(k2, dtype=torch.float32, device=device)
-    pose1_t = torch.as_tensor(pose1, dtype=torch.float32, device=device)
-    pose2_inv_t = torch.linalg.inv(torch.as_tensor(pose2, dtype=torch.float32, device=device))
-
-    h1, w1 = depth1_t.shape
-    h2, w2 = depth2_t.shape
-    ys = torch.arange(0, h1, args.geometry_stride, dtype=torch.float32, device=device)
-    xs = torch.arange(0, w1, args.geometry_stride, dtype=torch.float32, device=device)
-    y_grid, x_grid = torch.meshgrid(ys, xs, indexing="ij")
-    source_depth = depth1_t[y_grid.long(), x_grid.long()].reshape(-1)
-    source_x = x_grid.reshape(-1)
-    source_y = y_grid.reshape(-1)
-
-    x_cam = (source_x - k1_t[0, 2]) / k1_t[0, 0] * source_depth
-    y_cam = (source_y - k1_t[1, 2]) / k1_t[1, 1] * source_depth
-    ones = torch.ones_like(source_depth)
-    cam1_h = torch.stack((x_cam, y_cam, source_depth, ones), dim=1)
-    world_h = (pose1_t @ cam1_h.T).T
-    cam2 = (pose2_inv_t @ world_h.T).T[:, :3]
-    z2_projected = cam2[:, 2]
-    x2 = k2_t[0, 0] * cam2[:, 0] / z2_projected + k2_t[0, 2]
-    y2 = k2_t[1, 1] * cam2[:, 1] / z2_projected + k2_t[1, 2]
-    target_x = torch.round(x2).long()
-    target_y = torch.round(y2).long()
-
-    inside = (target_x >= 0) & (target_x < w2) & (target_y >= 0) & (target_y < h2)
-    safe_x2 = target_x.clamp(0, w2 - 1)
-    safe_y2 = target_y.clamp(0, h2 - 1)
-    target_depth = depth2_t[safe_y2, safe_x2]
-    depth_error = torch.abs(z2_projected - target_depth)
-    keep = (
-        inside
-        & torch.isfinite(source_depth)
-        & torch.isfinite(target_depth)
-        & torch.isfinite(z2_projected)
-        & (source_depth > args.min_depth)
-        & (target_depth > args.min_depth)
-        & (z2_projected > args.min_depth)
-        & (source_depth <= args.max_depth)
-        & (target_depth <= args.max_depth)
-        & (z2_projected <= args.max_depth)
-        & (depth_error <= args.depth_consistency_thresh)
-    )
-
-    source_xy = torch.stack((source_x, source_y), dim=1).round().long()
-    target_xy = torch.stack((target_x, target_y), dim=1)
-    positives = make_positive(
-        source_xy[keep].detach().cpu().numpy(),
-        target_xy[keep].detach().cpu().numpy(),
-        depth_error[keep].detach().cpu().numpy(),
-        "geometry",
-        depth_error=depth_error[keep].detach().cpu().numpy(),
-    )
-    return positives, {"raw": int(source_xy.shape[0]), "after_filter": int(keep.sum().item()), "device": str(device)}
-
-
 def geometry_positives(view1: dict[str, Any], view2: dict[str, Any], args: argparse.Namespace) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     view1, view2 = to_numpy((view1, view2))
     depth1 = np.asarray(view1["depthmap"], dtype=np.float32)
@@ -211,8 +120,49 @@ def geometry_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpa
     k2 = np.asarray(view2["camera_intrinsics"], dtype=np.float32)
     pose1 = np.asarray(view1["camera_pose"], dtype=np.float32)
     pose2 = np.asarray(view2["camera_pose"], dtype=np.float32)
-    if args.geometry_device == "cpu":
-        positives, stats = geometry_positives_numpy(depth1, depth2, k1, k2, pose1, pose2, args)
-        stats["device"] = "cpu"
-        return positives, stats
-    return geometry_positives_torch(depth1, depth2, k1, k2, pose1, pose2, args)
+
+    pts1_world = world_points_from_depth(depth1, k1, pose1)
+    pts2_world = world_points_from_depth(depth2, k2, pose2)
+    crop_view1 = {"pts3d": pts1_world, "camera_intrinsics": k1, "camera_pose": pose1}
+    crop_view2 = {"pts3d": pts2_world, "camera_intrinsics": k2, "camera_pose": pose2}
+    source_xy, target_xy = extract_correspondences_from_pts3d(crop_view1, crop_view2, target_n_corres=None, ret_xy=True)
+    reciprocal_count = int(len(source_xy))
+
+    x1 = source_xy[:, 0].astype(np.int64)
+    y1 = source_xy[:, 1].astype(np.int64)
+    x2 = target_xy[:, 0].astype(np.int64)
+    y2 = target_xy[:, 1].astype(np.int64)
+    valid = (
+        (x1 >= 0)
+        & (x1 < depth1.shape[1])
+        & (y1 >= 0)
+        & (y1 < depth1.shape[0])
+        & (x2 >= 0)
+        & (x2 < depth2.shape[1])
+        & (y2 >= 0)
+        & (y2 < depth2.shape[0])
+        & (depth1[y1, x1] > args.min_depth)
+        & (depth2[y2, x2] > args.min_depth)
+        & (depth1[y1, x1] <= args.max_depth)
+        & (depth2[y2, x2] <= args.max_depth)
+    )
+    source_xy = source_xy[valid]
+    target_xy = target_xy[valid]
+    x1 = source_xy[:, 0].astype(np.int64)
+    y1 = source_xy[:, 1].astype(np.int64)
+    x2 = target_xy[:, 0].astype(np.int64)
+    y2 = target_xy[:, 1].astype(np.int64)
+
+    pts1_in_cam2 = camera_points_from_world(pts1_world, pose2)[y1, x1]
+    pts2_in_cam2 = camera_points_from_world(pts2_world, pose2)[y2, x2]
+    distances = np.linalg.norm(pts1_in_cam2 - pts2_in_cam2, axis=1)
+    keep = np.isfinite(distances) & (distances <= args.depth_consistency_thresh)
+    positives = make_positive(source_xy[keep], target_xy[keep], distances[keep], "geometry", depth_error=distances[keep])
+    return positives, {
+        "matching_style": "cropping.extract_correspondences_from_pts3d",
+        "reciprocal": reciprocal_count,
+        "valid_depth": int(valid.sum()),
+        "after_filter": int(keep.sum()),
+        "dist_thresh": float(args.depth_consistency_thresh),
+        "raw": reciprocal_count,
+    }
