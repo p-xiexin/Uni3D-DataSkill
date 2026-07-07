@@ -198,8 +198,6 @@ def feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: argpar
         & (target_depth <= args.max_depth)
         & np.isfinite(depth_error)
         & (depth_error <= args.depth_consistency_thresh)
-        & np.isfinite(angular_distance)
-        & (angular_distance <= args.ray_angular_thresh)
     )
 
     positives = make_positive(xy1[keep], target_xy[keep].astype(np.float32), depth_error[keep], "feat", feature_score=score[keep], depth_error=depth_error[keep])
@@ -276,6 +274,8 @@ def ray_feature_positives(view1: dict[str, Any], view2: dict[str, Any], args: ar
         & (target_ray_distance <= args.max_depth)
         & np.isfinite(depth_error)
         & (depth_error <= args.depth_consistency_thresh)
+        & np.isfinite(angular_distance)
+        & (angular_distance <= args.ray_angular_thresh)
     )
     positives = make_positive(xy1[keep], target_xy[keep].astype(np.float32), depth_error[keep], "feat", feature_score=score[keep], depth_error=depth_error[keep])
     positives["source_depth_m"] = source_ray_distance[keep].astype(np.float32)

@@ -218,7 +218,9 @@ def ray_geometry_positives(view1: dict[str, Any], view2: dict[str, Any], args: a
     pts1_world = world_points_from_camera_points(camera_points_from_rays(ray_distance1, rays1), pose1)
     pts2_world = world_points_from_camera_points(camera_points_from_rays(ray_distance2, rays2), pose2)
     pts1_in_cam2 = camera_points_from_world(pts1_world, pose2)
-    target_xy_dense, angular_distance = project_camera_points_to_ray_pixels(pts1_in_cam2, rays2)
+    pts2_in_cam1 = camera_points_from_world(pts2_world, pose1)
+    target_xy_dense, forward_angular_distance = project_camera_points_to_ray_pixels(pts1_in_cam2, rays2)
+    back_xy_dense, backward_angular_distance = project_camera_points_to_ray_pixels(pts2_in_cam1, rays1)
 
     h1, w1 = ray_distance1.shape
     h2, w2 = ray_distance2.shape
@@ -229,34 +231,57 @@ def ray_geometry_positives(view1: dict[str, Any], view2: dict[str, Any], args: a
     safe_x2 = np.clip(x2, 0, w2 - 1)
     safe_y2 = np.clip(y2, 0, h2 - 1)
     projected_ray_distance = np.linalg.norm(pts1_in_cam2, axis=2)
+    projected_back_ray_distance = np.linalg.norm(pts2_in_cam1, axis=2)[safe_y2, safe_x2]
     target_ray_distance = ray_distance2[safe_y2, safe_x2]
-    depth_error = np.abs(projected_ray_distance - target_ray_distance)
+    forward_depth_error = np.abs(projected_ray_distance - target_ray_distance)
+    backward_depth_error = np.abs(projected_back_ray_distance - ray_distance1)
+    depth_error = np.maximum(forward_depth_error, backward_depth_error)
+
+    back_xy = back_xy_dense[safe_y2, safe_x2]
+    back_x = np.rint(back_xy[..., 0]).astype(np.int64)
+    back_y = np.rint(back_xy[..., 1]).astype(np.int64)
+    reciprocal = inside & (back_x == x1) & (back_y == y1)
+    target_backward_angular_distance = backward_angular_distance[safe_y2, safe_x2]
+
     valid = (
-        inside
+        reciprocal
         & np.isfinite(ray_distance1)
         & np.isfinite(target_ray_distance)
         & (ray_distance1 > args.min_depth)
         & (ray_distance1 <= args.max_depth)
         & (projected_ray_distance > args.min_depth)
         & (projected_ray_distance <= args.max_depth)
+        & (projected_back_ray_distance > args.min_depth)
+        & (projected_back_ray_distance <= args.max_depth)
         & (target_ray_distance > args.min_depth)
         & (target_ray_distance <= args.max_depth)
         & np.isfinite(depth_error)
-        & (depth_error <= args.depth_consistency_thresh)
-        & np.isfinite(angular_distance)
-        & (angular_distance <= args.ray_angular_thresh)
+        & np.isfinite(forward_depth_error)
+        & np.isfinite(backward_depth_error)
+        & (forward_depth_error <= args.depth_consistency_thresh)
+        & (backward_depth_error <= args.depth_consistency_thresh)
+        & np.isfinite(forward_angular_distance)
+        & np.isfinite(target_backward_angular_distance)
+        & (forward_angular_distance <= args.ray_angular_thresh)
+        & (target_backward_angular_distance <= args.ray_angular_thresh)
     )
     source_xy = np.stack((x1[valid], y1[valid]), axis=1).astype(np.float32)
     target_xy = target_xy_dense[valid].astype(np.float32)
     positives = make_positive(source_xy, target_xy, depth_error[valid], "geom", depth_error=depth_error[valid])
     return positives, {
-        "matching_style": "ray_direction_projection",
+        "matching_style": "ray_direction_reciprocal_projection",
         "raw": int(h1 * w1),
         "target_inside": int(inside.sum()),
+        "reciprocal": int(reciprocal.sum()),
         "after_filter": int(valid.sum()),
         "dist_thresh": float(args.depth_consistency_thresh),
         "ray_angular_thresh": float(args.ray_angular_thresh),
-        "mean_angular_nn_distance": float(np.nanmean(angular_distance[np.isfinite(angular_distance)])) if np.isfinite(angular_distance).any() else None,
+        "mean_forward_angular_nn_distance": float(np.nanmean(forward_angular_distance[np.isfinite(forward_angular_distance)]))
+        if np.isfinite(forward_angular_distance).any()
+        else None,
+        "mean_backward_angular_nn_distance": float(np.nanmean(backward_angular_distance[np.isfinite(backward_angular_distance)]))
+        if np.isfinite(backward_angular_distance).any()
+        else None,
     }
 
 
