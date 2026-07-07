@@ -147,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-depth", type=float, default=0.1)
     parser.add_argument("--max-depth", type=float, default=50.0)
     parser.add_argument("--depth-consistency-thresh", type=float, default=0.25)
+    parser.add_argument("--ray-angular-thresh", type=float, default=0.01, help="Max unit-ray nearest-neighbor distance for ray-camera projection.")
     parser.add_argument("--feature-method", choices=["sift", "aliked", "superpoint", "sp", "lightglue_sift"], default="sift")
     parser.add_argument("--max-keypoints", type=int, default=4096)
     parser.add_argument("--match-ratio", type=float, default=0.75, help="Lowe ratio for no-depth SIFT matching.")
@@ -167,6 +168,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-depth must be greater than --min-depth")
     if args.depth_consistency_thresh <= 0:
         raise ValueError("--depth-consistency-thresh must be positive")
+    if args.ray_angular_thresh <= 0:
+        raise ValueError("--ray-angular-thresh must be positive")
     if not 0 < args.match_ratio < 1:
         raise ValueError("--match-ratio must be in (0, 1)")
     for key in ("frame_gap", "max_keypoints", "geom_stride", "viz_stride", "max_viz_points"):

@@ -197,6 +197,10 @@ generated in sequence order as `(frame_i, frame_i +
 build fixed-gap pairs. The builder processes every selected sequence in full;
 use `--width` and `--height` to control dataloader resolution.
 
+Views that provide `pixel_rays` and `ray_distance` use the generic ray-camera
+projection path instead of pinhole `K`. `--ray-angular-thresh` controls the
+nearest-ray projection filter for those correspondences.
+
 Each saved `.npz` contains `tracks` with shape `S=2`, plus `corres1`,
 `corres2`, `distance_m`, `source_code`, `feat_score`, and `depth_err`. It also
 stores `geom_stride` for diagnosing how many correspondences were written and

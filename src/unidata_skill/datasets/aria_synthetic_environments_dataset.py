@@ -247,12 +247,12 @@ def _ray_distance_to_planar_depth(distance: np.ndarray, intrinsics: np.ndarray) 
     return (distance / ray_norm).astype(np.float32)
 
 
-def _ray_z_from_official_calibration(calibration: Any, image_shape: tuple[int, int]) -> np.ndarray | None:
+def _pixel_rays_from_official_calibration(calibration: Any, image_shape: tuple[int, int]) -> np.ndarray | None:
     if not hasattr(calibration, "unproject"):
         return None
 
     height, width = image_shape
-    ray_z = np.zeros((height, width), dtype=np.float32)
+    rays = np.zeros((height, width, 3), dtype=np.float32)
     for v in range(height):
         for u in range(width):
             ray = calibration.unproject(np.array([float(u), float(v)], dtype=np.float64))
@@ -263,23 +263,23 @@ def _ray_z_from_official_calibration(calibration: Any, image_shape: tuple[int, i
                 continue
             norm = float(np.linalg.norm(ray[:3]))
             if norm > 1e-8:
-                ray_z[v, u] = ray[2] / norm
-    return ray_z
+                rays[v, u] = ray[:3] / norm
+    return rays
 
 
 def _ray_distance_to_planar_depth_with_calibration(
     distance: np.ndarray,
     calibration: Any,
     intrinsics: np.ndarray,
-    ray_z_cache: dict[tuple[int, int], np.ndarray],
+    pixel_ray_cache: dict[tuple[int, int], np.ndarray],
 ) -> np.ndarray:
     shape = tuple(distance.shape)
-    if shape not in ray_z_cache:
-        ray_z = _ray_z_from_official_calibration(calibration, shape)
-        if ray_z is None:
+    if shape not in pixel_ray_cache:
+        rays = _pixel_rays_from_official_calibration(calibration, shape)
+        if rays is None:
             return _ray_distance_to_planar_depth(distance, intrinsics)
-        ray_z_cache[shape] = ray_z
-    return (distance * ray_z_cache[shape]).astype(np.float32)
+        pixel_ray_cache[shape] = rays
+    return (distance * pixel_ray_cache[shape][..., 2]).astype(np.float32)
 
 
 def generate_ase_index(
@@ -376,7 +376,7 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
         self.rgb_calibration = _load_ase_rgb_calibration()
         self.camera_intrinsics = _intrinsics_from_ase_calibration(self.rgb_calibration)
         self.device_from_camera = _transform_to_matrix(self.rgb_calibration.get_transform_device_camera())
-        self.ray_z_cache: dict[tuple[int, int], np.ndarray] = {}
+        self.pixel_ray_cache: dict[tuple[int, int], np.ndarray] = {}
 
         if index_file is None:
             index = generate_ase_index(self.data_root, chunks=chunks, roots=roots)
@@ -437,12 +437,16 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
 
             ray_distance = _read_depth_png_meters(depth_path)
             intrinsics = self.camera_intrinsics.copy()
+            pixel_rays = _pixel_rays_from_official_calibration(self.rgb_calibration, tuple(ray_distance.shape))
+            if pixel_rays is not None:
+                self.pixel_ray_cache[tuple(ray_distance.shape)] = pixel_rays
             depthmap = _ray_distance_to_planar_depth_with_calibration(
                 ray_distance,
                 self.rgb_calibration,
                 intrinsics,
-                self.ray_z_cache,
+                self.pixel_ray_cache,
             )
+            original_shape = tuple(depthmap.shape)
             camera_pose = poses[frame_no] @ self.device_from_camera
             img, depthmap, intrinsics = self._crop_resize_if_necessary(
                 img,
@@ -452,6 +456,12 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
                 rng=rng,
                 info=str(image_path),
             )[:3]
+            ray_fields = {}
+            if tuple(depthmap.shape) == original_shape and pixel_rays is not None:
+                ray_fields = {
+                    "pixel_rays": pixel_rays.astype(np.float32),
+                    "ray_distance": ray_distance.astype(np.float32),
+                }
 
             views.append(
                 {
@@ -470,12 +480,13 @@ class AriaSyntheticEnvironmentsPi3XDataset(BaseDataset):
                     if record.get("scene_language") is None
                     else str(Path(record["scene_language"])),
                     "depth_source": "native_gt_dense",
-                    "depth_definition": "planar_z_from_ase_ray_distance_mm_official_calibration",
+                    "depth_definition": "ray_distance_m_with_pixel_rays",
                     "pose_source": "native_gt",
                     "intrinsics_source": "native_gt",
                     "camera_model": "aria_rgb_fisheye_official_calibration",
                     "pseudo_label": False,
                     "valid_mask_required": True,
+                    **ray_fields,
                 }
             )
         return views
