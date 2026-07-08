@@ -106,15 +106,31 @@ def match_features_without_depth(view1: dict[str, Any], view2: dict[str, Any], a
     xy1, desc1, score1 = extract_sift_for_matching(image1, args)
     xy2, desc2, _score2 = extract_sift_for_matching(image2, args)
     matcher = cv2.BFMatcher(cv2.NORM_L2)
-    pairs = matcher.knnMatch(desc1, desc2, k=2)
-    keep = []
     ratio = float(args.match_ratio)
-    for pair in pairs:
+
+    forward = {}
+    forward_pairs = matcher.knnMatch(desc1, desc2, k=2)
+    for pair in forward_pairs:
         if len(pair) != 2:
             continue
         best, second = pair
         if best.distance < ratio * second.distance:
-            keep.append(best)
+            forward[int(best.queryIdx)] = best
+
+    backward = {}
+    backward_pairs = matcher.knnMatch(desc2, desc1, k=2)
+    for pair in backward_pairs:
+        if len(pair) != 2:
+            continue
+        best, second = pair
+        if best.distance < ratio * second.distance:
+            backward[int(best.queryIdx)] = best
+
+    keep = []
+    for query_idx, match in forward.items():
+        reverse = backward.get(int(match.trainIdx))
+        if reverse is not None and int(reverse.trainIdx) == query_idx:
+            keep.append(match)
     if not keep:
         raise PairSkip("feature_matcher_empty:sift")
     keep = sorted(keep, key=lambda item: item.distance)
@@ -128,6 +144,9 @@ def match_features_without_depth(view1: dict[str, Any], view2: dict[str, Any], a
         "matching_style": "descriptor_matching_no_depth",
         "raw_source_features": int(len(xy1)),
         "raw_target_features": int(len(xy2)),
+        "forward_ratio_matches": int(len(forward)),
+        "backward_ratio_matches": int(len(backward)),
+        "reciprocal_matches": int(len(src)),
         "after_filter": int(len(src)),
         "match_ratio": ratio,
     }
