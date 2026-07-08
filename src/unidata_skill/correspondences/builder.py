@@ -78,6 +78,8 @@ def process_config(config: DatasetConfig, args: argparse.Namespace) -> dict:
                         views = load_pair_views(dataset, sequence, source_idx, target_idx, args)
                         if len(views) != 2:
                             raise PairSkip(f"loaded_pair_view_count:{len(views)}")
+                        if str(views[0].get("image_path", "")) == str(views[1].get("image_path", "")):
+                            raise PairSkip("self_pair_same_image")
                         corres, stats, viz_corres = build_corres(views[0], views[1], args)
                         arrays = make_arrays(corres)
                         manifest, counts = write_pair(

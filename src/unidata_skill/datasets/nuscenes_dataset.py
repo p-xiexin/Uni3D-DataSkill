@@ -111,45 +111,55 @@ def generate_nuscenes_index(
 
     scenes = {item["token"]: item for item in _read_json(table_root / "scene.json")}
     samples = {item["token"]: item for item in _read_json(table_root / "sample.json")}
-    sample_data = _read_json(table_root / "sample_data.json")
+    sample_data = {item["token"]: item for item in _read_json(table_root / "sample_data.json")}
     calibrated = {item["token"]: item for item in _read_json(table_root / "calibrated_sensor.json")}
     ego_poses = {item["token"]: item for item in _read_json(table_root / "ego_pose.json")}
     sensors = {item["token"]: item for item in _read_json(table_root / "sensor.json")}
-    sample_to_scene = {token: scenes[sample["scene_token"]]["name"] for token, sample in samples.items()}
-
-    frames_by_scene: dict[str, list[dict[str, Any]]] = {}
-    for item in tqdm(sample_data, desc="[nuScenes] building index", unit="sample_data"):
-        calib = calibrated[item["calibrated_sensor_token"]]
-        sensor = sensors[calib["sensor_token"]]
-        channel = sensor.get("channel", "")
-        if sensor.get("modality") != "camera" or not channel.startswith("CAM_"):
-            continue
-        if cameras is not None and channel not in cameras:
-            continue
-        scene = sample_to_scene.get(item["sample_token"])
-        if scene is None:
-            continue
-
-        ego = ego_poses[item["ego_pose_token"]]
-        camera_to_ego = _transform(_quaternion_wxyz_to_rotation(calib["rotation"]), calib["translation"])
-        ego_to_global = _transform(_quaternion_wxyz_to_rotation(ego["rotation"]), ego["translation"])
-        camera_to_global = ego_to_global @ camera_to_ego
-        frames_by_scene.setdefault(scene, []).append(
-            {
-                "channel": channel,
-                "frame_id": str(item.get("timestamp", item["token"])),
-                "image": str(_resolve_data_path(data_blob_root, samples_root, item["filename"]).resolve()),
-                "camera_intrinsics": np.array(calib["camera_intrinsic"], dtype=np.float32).tolist(),
-                "camera_pose": camera_to_global.astype(np.float32).tolist(),
-                "sample_token": item["sample_token"],
-                "sample_data_token": item["token"],
-            }
+    camera_channels = tuple(cameras) if cameras is not None else tuple(
+        sorted(
+            sensor["channel"]
+            for sensor in sensors.values()
+            if sensor.get("modality") == "camera" and str(sensor.get("channel", "")).startswith("CAM_")
         )
+    )
 
     records = []
-    for scene in sorted(frames_by_scene):
-        frames = sorted(frames_by_scene[scene], key=lambda frame: (frame["frame_id"], frame["channel"]))
-        records.append({"sequence_id": scene, "frames": frames})
+    scene_items = sorted(scenes.values(), key=lambda item: item["name"])
+    for scene in tqdm(scene_items, desc="[nuScenes] building index", unit="scene"):
+        scene_name = scene["name"]
+        for channel in camera_channels:
+            frames = []
+            sample_token = scene.get("first_sample_token", "")
+            seen_samples = set()
+            while sample_token:
+                if sample_token in seen_samples:
+                    raise RuntimeError(f"nuScenes sample chain loop in scene {scene_name}: {sample_token}")
+                seen_samples.add(sample_token)
+                sample = samples.get(sample_token)
+                if sample is None:
+                    break
+                sample_data_token = sample.get("data", {}).get(channel)
+                item = sample_data.get(sample_data_token) if sample_data_token else None
+                if item is not None:
+                    calib = calibrated[item["calibrated_sensor_token"]]
+                    ego = ego_poses[item["ego_pose_token"]]
+                    camera_to_ego = _transform(_quaternion_wxyz_to_rotation(calib["rotation"]), calib["translation"])
+                    ego_to_global = _transform(_quaternion_wxyz_to_rotation(ego["rotation"]), ego["translation"])
+                    camera_to_global = ego_to_global @ camera_to_ego
+                    frames.append(
+                        {
+                            "channel": channel,
+                            "frame_id": str(sample.get("timestamp", item.get("timestamp", item["token"]))),
+                            "image": str(_resolve_data_path(data_blob_root, samples_root, item["filename"]).resolve()),
+                            "camera_intrinsics": np.array(calib["camera_intrinsic"], dtype=np.float32).tolist(),
+                            "camera_pose": camera_to_global.astype(np.float32).tolist(),
+                            "sample_token": sample_token,
+                            "sample_data_token": item["token"],
+                        }
+                    )
+                sample_token = sample.get("next", "")
+            if frames:
+                records.append({"sequence_id": f"{scene_name}/{channel}", "frames": frames})
 
     index = {"version": 1, "sequences": records}
     if output_path is not None:
