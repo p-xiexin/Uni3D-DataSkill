@@ -39,7 +39,10 @@ def load_tables(root: Path, version: str) -> NuScenesTables:
         calib = calibrated[item["calibrated_sensor_token"]]
         sensor = sensors[calib["sensor_token"]]
         channel = sensor["channel"]
-        sample_data_by_sample_channel.setdefault(item["sample_token"], {})[channel] = item["token"]
+        channel_map = sample_data_by_sample_channel.setdefault(item["sample_token"], {})
+        old_token = channel_map.get(channel)
+        if old_token is None or (item.get("is_key_frame", False) and not sample_data[old_token].get("is_key_frame", False)):
+            channel_map[channel] = item["token"]
     return NuScenesTables(
         root=root,
         table_root=table_root,
@@ -125,17 +128,41 @@ def select_target_sample(samples: list[dict[str, Any]], args: argparse.Namespace
     return args.target_index, samples[args.target_index]
 
 
-def select_source_samples(samples: list[dict[str, Any]], target_index: int, args: argparse.Namespace) -> list[tuple[int, dict[str, Any]]]:
-    start = max(0, target_index - args.frames_before)
-    end = min(len(samples), target_index + args.frames_after + 1)
-    selected = []
-    for index in range(start, end):
-        if index == target_index and not args.include_target_lidar:
-            continue
-        selected.append((index, samples[index]))
-    if not selected:
-        raise RuntimeError("no source LiDAR frames selected")
-    return selected
+def walk_sample_data_chain(tables: NuScenesTables, start_token: str, direction: str, limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    key = "prev" if direction == "prev" else "next"
+    out = []
+    token = tables.sample_data[start_token].get(key, "")
+    seen = {start_token}
+    while token and len(out) < limit:
+        if token in seen:
+            raise RuntimeError(f"sample_data {direction} chain loop at token {token}")
+        seen.add(token)
+        record = tables.sample_data[token]
+        out.append(record)
+        token = record.get(key, "")
+    return out
+
+
+def select_source_lidar_records(
+    tables: NuScenesTables,
+    target_sample: dict[str, Any],
+    args: argparse.Namespace,
+) -> list[tuple[int, dict[str, Any]]]:
+    target_lidar = sample_data_for_channel(tables, target_sample, args.lidar)
+    before = list(reversed(walk_sample_data_chain(tables, target_lidar["token"], "prev", args.sweeps_before)))
+    after = walk_sample_data_chain(tables, target_lidar["token"], "next", args.sweeps_after)
+    records = before + ([] if args.exclude_target_sweep else [target_lidar]) + after
+    if not records:
+        raise RuntimeError("no source LiDAR sweeps selected")
+    target_timestamp = float(target_lidar.get("timestamp", target_sample.get("timestamp", 0)))
+    source = []
+    for record in records:
+        timestamp = float(record.get("timestamp", target_timestamp))
+        relative_index = int(round((timestamp - target_timestamp) / 1e5))
+        source.append((relative_index, record))
+    return source
 
 
 def sample_data_pose_c2w(tables: NuScenesTables, sample_data_record: dict[str, Any]) -> np.ndarray:
@@ -168,19 +195,14 @@ def camera_info(tables: NuScenesTables, sample: dict[str, Any], camera_channel: 
 
 def accumulate_lidar_in_target_camera(
     tables: NuScenesTables,
-    source_samples: list[tuple[int, dict[str, Any]]],
+    source_lidar_records: list[tuple[int, dict[str, Any]]],
     target_camera_pose: np.ndarray,
-    lidar_channel: str,
 ) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]]]:
     target_camera_from_world = np.linalg.inv(target_camera_pose)
     all_points_cam = []
     all_source_index = []
     source_meta = []
-    for source_index, sample in source_samples:
-        try:
-            lidar_sd = sample_data_for_channel(tables, sample, lidar_channel)
-        except KeyError:
-            continue
+    for source_index, lidar_sd in source_lidar_records:
         lidar_path = resolve_data_path(tables.root, lidar_sd["filename"])
         lidar_points = load_lidar_bin(lidar_path)
         lidar_pose = sample_data_pose_c2w(tables, lidar_sd)
@@ -190,15 +212,17 @@ def accumulate_lidar_in_target_camera(
         all_source_index.append(np.full(len(points_cam), source_index, dtype=np.int32))
         source_meta.append(
             {
-                "sample_index": int(source_index),
-                "sample_token": sample["token"],
+                "sweep_offset": int(source_index),
+                "sample_token": lidar_sd["sample_token"],
                 "lidar_sample_data_token": lidar_sd["token"],
                 "lidar_path": str(lidar_path),
+                "timestamp": int(lidar_sd.get("timestamp", 0)),
+                "is_key_frame": bool(lidar_sd.get("is_key_frame", False)),
                 "points": int(len(points_cam)),
             }
         )
     if not all_points_cam:
-        raise RuntimeError(f"no LiDAR points loaded for channel {lidar_channel}")
+        raise RuntimeError("no LiDAR points loaded")
     return np.concatenate(all_points_cam, axis=0), np.concatenate(all_source_index, axis=0), source_meta
 
 
@@ -331,6 +355,11 @@ def visualize_projection(image_path: Path, uv: np.ndarray, depth: np.ndarray, ou
 
 
 def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], args: argparse.Namespace, target_camera_shape: tuple[int, int]) -> dict[str, Any]:
+    if args.exclude_target_sweep or args.sweeps_after:
+        return {
+            "available": False,
+            "skipped": "nuScenes devkit from_file_multisweep compares only current plus previous sweeps",
+        }
     try:
         from nuscenes.nuscenes import NuScenes
         from nuscenes.utils.data_classes import LidarPointCloud
@@ -344,7 +373,7 @@ def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], a
         devkit_target_sample,
         chan=args.lidar,
         ref_chan=args.camera,
-        nsweeps=args.devkit_nsweeps,
+        nsweeps=args.sweeps_before + (0 if args.exclude_target_sweep else 1),
         min_distance=args.devkit_min_distance,
     )
     target_camera_sd, _pose, intrinsics, _shape = camera_info(tables, target_sample, args.camera)
@@ -363,7 +392,7 @@ def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], a
     return {
         "available": True,
         "ref_camera_sample_data_token": target_camera_sd["token"],
-        "nsweeps": int(args.devkit_nsweeps),
+        "nsweeps": int(args.sweeps_before + (0 if args.exclude_target_sweep else 1)),
         "raw_points": int(devkit_points.nbr_points()),
         "projected_visible_points": int(inside.sum()),
         "time_lag_min": float(np.min(devkit_times)) if devkit_times.size else None,
@@ -372,7 +401,7 @@ def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], a
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Accumulate nuScenes LiDAR keyframes with GT poses and project to one camera frame.")
+    parser = argparse.ArgumentParser(description="Accumulate nuScenes LiDAR sweeps with GT poses and project to one camera frame.")
     parser.add_argument("--root", type=Path, required=True, help="nuScenes dataset root containing samples/, sweeps/, and version tables.")
     parser.add_argument("--version", default="v1.0-mini")
     parser.add_argument("--scene", required=True, help="nuScenes scene name, e.g. scene-0061.")
@@ -380,9 +409,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lidar", default="LIDAR_TOP")
     parser.add_argument("--target-index", type=int, default=0)
     parser.add_argument("--target-sample-token", default=None)
-    parser.add_argument("--frames-before", type=int, default=5)
-    parser.add_argument("--frames-after", type=int, default=0)
-    parser.add_argument("--include-target-lidar", action="store_true")
+    parser.add_argument("--sweeps-before", type=int, default=20)
+    parser.add_argument("--sweeps-after", type=int, default=0)
+    parser.add_argument("--exclude-target-sweep", action="store_true")
     parser.add_argument("--min-depth", type=float, default=0.1)
     parser.add_argument("--max-depth", type=float, default=80.0)
     parser.add_argument("--depth-conflict", choices=["nearest", "farthest", "overwrite"], default="nearest")
@@ -391,22 +420,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-viz", action="store_true")
     parser.add_argument("--max-viz-points", type=int, default=200000)
     parser.add_argument("--compare-devkit", action="store_true")
-    parser.add_argument("--devkit-nsweeps", type=int, default=6)
     parser.add_argument("--devkit-min-distance", type=float, default=1.0)
     return parser
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.frames_before < 0 or args.frames_after < 0:
-        raise ValueError("--frames-before and --frames-after must be non-negative")
+    if args.sweeps_before < 0 or args.sweeps_after < 0:
+        raise ValueError("--sweeps-before and --sweeps-after must be non-negative")
     if args.max_depth <= args.min_depth:
         raise ValueError("--max-depth must be greater than --min-depth")
     if args.depth_png_scale <= 0:
         raise ValueError("--depth-png-scale must be positive")
     if args.max_viz_points <= 0:
         raise ValueError("--max-viz-points must be positive")
-    if args.devkit_nsweeps <= 0:
-        raise ValueError("--devkit-nsweeps must be positive")
+    if args.exclude_target_sweep and args.sweeps_before == 0 and args.sweeps_after == 0:
+        raise ValueError("excluding the target sweep requires --sweeps-before or --sweeps-after to be positive")
 
 
 def main() -> int:
@@ -415,15 +443,14 @@ def main() -> int:
     tables = load_tables(args.root, args.version)
     samples = scene_samples_in_order(tables, args.scene)
     target_index, target_sample = select_target_sample(samples, args)
-    source_samples = select_source_samples(samples, target_index, args)
+    source_lidar_records = select_source_lidar_records(tables, target_sample, args)
     target_camera_sd, target_camera_pose, intrinsics, image_shape = camera_info(tables, target_sample, args.camera)
     target_image_path = resolve_data_path(tables.root, target_camera_sd["filename"])
 
     points_cam, source_indices, source_meta = accumulate_lidar_in_target_camera(
         tables,
-        source_samples,
+        source_lidar_records,
         target_camera_pose,
-        args.lidar,
     )
     visible_points_cam, uv, depth, visible_source_indices = visible_projected_points(
         points_cam,
@@ -452,7 +479,7 @@ def main() -> int:
         points_cam=visible_points_cam.astype(np.float32),
         uv=uv.astype(np.float32),
         depth=depth.astype(np.float32),
-        source_sample_index=visible_source_indices.astype(np.int32),
+        source_sweep_offset=visible_source_indices.astype(np.int32),
         intrinsics=intrinsics.astype(np.float32),
         target_camera_pose=target_camera_pose.astype(np.float32),
         image_shape=np.asarray(image_shape, dtype=np.int32),
@@ -472,6 +499,11 @@ def main() -> int:
         "scene": args.scene,
         "camera": args.camera,
         "lidar": args.lidar,
+        "accumulation_mode": "sweeps",
+        "sweeps_before": int(args.sweeps_before),
+        "sweeps_after": int(args.sweeps_after),
+        "include_target_sweep": not bool(args.exclude_target_sweep),
+        "exclude_target_sweep": bool(args.exclude_target_sweep),
         "target_index": int(target_index),
         "target_sample_token": target_sample["token"],
         "target_camera_sample_data_token": target_camera_sd["token"],
