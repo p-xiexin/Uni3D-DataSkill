@@ -277,6 +277,36 @@ def save_depth_png(path: Path, depth_map: np.ndarray, scale: float) -> None:
     Image.fromarray(encoded).save(path)
 
 
+def normalize_nonzero_to_uint8(array: np.ndarray, use_log: bool = False) -> np.ndarray:
+    values = array.astype(np.float32)
+    if use_log:
+        values = np.log1p(values)
+    mask = np.isfinite(values) & (values > 0)
+    output = np.zeros(values.shape, dtype=np.uint8)
+    if not mask.any():
+        return output
+    valid = values[mask]
+    low = float(np.percentile(valid, 1.0))
+    high = float(np.percentile(valid, 99.0))
+    if high <= low:
+        high = float(valid.max())
+        low = float(valid.min())
+    if high <= low:
+        output[mask] = 255
+        return output
+    scaled = (values[mask] - low) / (high - low)
+    output[mask] = np.clip(scaled * 255.0, 1, 255).astype(np.uint8)
+    return output
+
+
+def save_depth_viz(path: Path, depth_map: np.ndarray) -> None:
+    Image.fromarray(normalize_nonzero_to_uint8(depth_map)).save(path)
+
+
+def save_count_viz(path: Path, count_map: np.ndarray) -> None:
+    Image.fromarray(normalize_nonzero_to_uint8(count_map, use_log=True)).save(path)
+
+
 def visualize_projection(image_path: Path, uv: np.ndarray, depth: np.ndarray, output_path: Path, max_points: int) -> None:
     import matplotlib
 
@@ -412,6 +442,8 @@ def main() -> int:
     depth_npy_path = output_dir / "semi_dense_depth.npy"
     depth_png_path = output_dir / "semi_dense_depth_uint16.png"
     count_png_path = output_dir / "projection_count_uint16.png"
+    depth_viz_path = output_dir / "semi_dense_depth_viz.png"
+    count_viz_path = output_dir / "projection_count_viz.png"
     viz_path = output_dir / "projection_viz.jpg"
     summary_path = output_dir / "summary.json"
 
@@ -428,6 +460,8 @@ def main() -> int:
     np.save(depth_npy_path, depth_map)
     save_depth_png(depth_png_path, depth_map, args.depth_png_scale)
     Image.fromarray(count_map).save(count_png_path)
+    save_depth_viz(depth_viz_path, depth_map)
+    save_count_viz(count_viz_path, count_map)
     if not args.no_viz:
         visualize_projection(target_image_path, uv, depth, viz_path, args.max_viz_points)
 
@@ -454,6 +488,8 @@ def main() -> int:
             "depth_npy": str(depth_npy_path),
             "depth_png_uint16": str(depth_png_path),
             "count_png_uint16": str(count_png_path),
+            "depth_viz_png": str(depth_viz_path),
+            "count_viz_png": str(count_viz_path),
             "visualization": None if args.no_viz else str(viz_path),
         },
         "devkit_compare": devkit_summary,
