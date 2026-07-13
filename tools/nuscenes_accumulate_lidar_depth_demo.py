@@ -23,6 +23,43 @@ class NuScenesTables:
     sample_data_by_sample_channel: dict[str, dict[str, str]]
 
 
+@dataclass(frozen=True)
+class CameraTarget:
+    sample_index: int
+    sample: dict[str, Any]
+    camera_sample_data: dict[str, Any]
+    camera_pose: np.ndarray
+    intrinsics: np.ndarray
+    image_shape: tuple[int, int]
+    image_path: Path
+
+
+@dataclass(frozen=True)
+class ProjectionSample:
+    target: CameraTarget
+    points_cam: np.ndarray
+    uv: np.ndarray
+    depth: np.ndarray
+    source_sweep_offset: np.ndarray
+    depth_map: np.ndarray
+    count_map: np.ndarray
+    source_sweeps: list[dict[str, Any]]
+    raw_accumulated_points: int
+
+
+@dataclass(frozen=True)
+class OutputPaths:
+    output_dir: Path
+    projection_npz: Path
+    depth_npy: Path
+    depth_png_uint16: Path
+    count_png_uint16: Path
+    depth_viz_png: Path
+    count_viz_png: Path
+    visualization: Path
+    summary: Path
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -193,6 +230,21 @@ def camera_info(tables: NuScenesTables, sample: dict[str, Any], camera_channel: 
     return camera_sd, camera_pose, intrinsics, (height, width)
 
 
+def build_camera_target(tables: NuScenesTables, samples: list[dict[str, Any]], args: argparse.Namespace) -> CameraTarget:
+    target_index, target_sample = select_target_sample(samples, args)
+    camera_sd, camera_pose, intrinsics, image_shape = camera_info(tables, target_sample, args.camera)
+    image_path = resolve_data_path(tables.root, camera_sd["filename"])
+    return CameraTarget(
+        sample_index=target_index,
+        sample=target_sample,
+        camera_sample_data=camera_sd,
+        camera_pose=camera_pose,
+        intrinsics=intrinsics,
+        image_shape=image_shape,
+        image_path=image_path,
+    )
+
+
 def accumulate_lidar_in_target_camera(
     tables: NuScenesTables,
     source_lidar_records: list[tuple[int, dict[str, Any]]],
@@ -224,6 +276,35 @@ def accumulate_lidar_in_target_camera(
     if not all_points_cam:
         raise RuntimeError("no LiDAR points loaded")
     return np.concatenate(all_points_cam, axis=0), np.concatenate(all_source_index, axis=0), source_meta
+
+
+def build_projection_sample(tables: NuScenesTables, target: CameraTarget, args: argparse.Namespace) -> ProjectionSample:
+    source_lidar_records = select_source_lidar_records(tables, target.sample, args)
+    points_cam, source_indices, source_sweeps = accumulate_lidar_in_target_camera(
+        tables,
+        source_lidar_records,
+        target.camera_pose,
+    )
+    visible_points_cam, uv, depth, visible_source_indices = visible_projected_points(
+        points_cam,
+        source_indices,
+        target.intrinsics,
+        target.image_shape,
+        args.min_depth,
+        args.max_depth,
+    )
+    depth_map, count_map = rasterize_depth(uv, depth, target.image_shape, args.depth_conflict)
+    return ProjectionSample(
+        target=target,
+        points_cam=visible_points_cam,
+        uv=uv,
+        depth=depth,
+        source_sweep_offset=visible_source_indices,
+        depth_map=depth_map,
+        count_map=count_map,
+        source_sweeps=source_sweeps,
+        raw_accumulated_points=int(len(points_cam)),
+    )
 
 
 def project_points(points_cam: np.ndarray, intrinsics: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -354,101 +435,81 @@ def visualize_projection(image_path: Path, uv: np.ndarray, depth: np.ndarray, ou
     plt.close("all")
 
 
-def save_devkit_projection(
-    tables: NuScenesTables,
-    target_sample: dict[str, Any],
-    args: argparse.Namespace,
-    image_shape: tuple[int, int],
-    intrinsics: np.ndarray,
-    target_image_path: Path,
-    output_dir: Path,
-) -> dict[str, Any]:
-    if args.exclude_target_sweep or args.sweeps_after:
-        return {
-            "available": False,
-            "skipped": "nuScenes devkit from_file_multisweep compares only current plus previous sweeps",
-        }
-    try:
-        from nuscenes.nuscenes import NuScenes
-        from nuscenes.utils.data_classes import LidarPointCloud
-    except ModuleNotFoundError as exc:
-        return {"available": False, "error": str(exc)}
-
-    nusc = NuScenes(version=args.version, dataroot=str(tables.root), verbose=False)
-    devkit_target_sample = nusc.get("sample", target_sample["token"])
-    nsweeps = args.sweeps_before + (0 if args.exclude_target_sweep else 1)
-    devkit_points, devkit_times = LidarPointCloud.from_file_multisweep(
-        nusc,
-        devkit_target_sample,
-        chan=args.lidar,
-        ref_chan=args.camera,
-        nsweeps=nsweeps,
-        min_distance=args.devkit_min_distance,
+def prepare_output_paths(base_dir: Path, scene: str, camera: str, target_index: int) -> OutputPaths:
+    scene_part = scene.replace("/", "_")
+    output_dir = base_dir / scene_part / camera / f"{target_index:06d}"
+    return OutputPaths(
+        output_dir=output_dir,
+        projection_npz=output_dir / "accumulated_lidar_projection.npz",
+        depth_npy=output_dir / "semi_dense_depth.npy",
+        depth_png_uint16=output_dir / "semi_dense_depth_uint16.png",
+        count_png_uint16=output_dir / "projection_count_uint16.png",
+        depth_viz_png=output_dir / "semi_dense_depth_viz.png",
+        count_viz_png=output_dir / "projection_count_viz.png",
+        visualization=output_dir / "projection_viz.jpg",
+        summary=output_dir / "summary.json",
     )
-    points_cam = devkit_points.points[:3].T.astype(np.float32)
-    uv, depth = project_points(points_cam, intrinsics)
-    height, width = image_shape
-    inside = (
-        np.isfinite(uv).all(axis=1)
-        & np.isfinite(depth)
-        & (depth > args.min_depth)
-        & (depth <= args.max_depth)
-        & (uv[:, 0] >= 0)
-        & (uv[:, 0] < width)
-        & (uv[:, 1] >= 0)
-        & (uv[:, 1] < height)
-    )
-    visible_points_cam = points_cam[inside]
-    visible_uv = uv[inside]
-    visible_depth = depth[inside]
-    visible_times = devkit_times.reshape(-1)[inside] if devkit_times.size else np.empty((0,), dtype=np.float32)
-    depth_map, count_map = rasterize_depth(visible_uv, visible_depth, image_shape, args.depth_conflict)
 
-    devkit_dir = output_dir / "devkit_compare"
-    devkit_dir.mkdir(parents=True, exist_ok=True)
-    npz_path = devkit_dir / "devkit_lidar_projection.npz"
-    depth_npy_path = devkit_dir / "devkit_semi_dense_depth.npy"
-    depth_png_path = devkit_dir / "devkit_semi_dense_depth_uint16.png"
-    count_png_path = devkit_dir / "devkit_projection_count_uint16.png"
-    depth_viz_path = devkit_dir / "devkit_semi_dense_depth_viz.png"
-    count_viz_path = devkit_dir / "devkit_projection_count_viz.png"
-    viz_path = devkit_dir / "devkit_projection_viz.jpg"
 
+def save_projection_sample(sample: ProjectionSample, paths: OutputPaths, args: argparse.Namespace) -> None:
+    paths.output_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
-        npz_path,
-        points_cam=visible_points_cam.astype(np.float32),
-        uv=visible_uv.astype(np.float32),
-        depth=visible_depth.astype(np.float32),
-        time_lag=visible_times.astype(np.float32),
-        intrinsics=intrinsics.astype(np.float32),
-        image_shape=np.asarray(image_shape, dtype=np.int32),
+        paths.projection_npz,
+        points_cam=sample.points_cam.astype(np.float32),
+        uv=sample.uv.astype(np.float32),
+        depth=sample.depth.astype(np.float32),
+        source_sweep_offset=sample.source_sweep_offset.astype(np.int32),
+        intrinsics=sample.target.intrinsics.astype(np.float32),
+        target_camera_pose=sample.target.camera_pose.astype(np.float32),
+        image_shape=np.asarray(sample.target.image_shape, dtype=np.int32),
     )
-    np.save(depth_npy_path, depth_map)
-    save_depth_png(depth_png_path, depth_map, args.depth_png_scale)
-    Image.fromarray(count_map).save(count_png_path)
-    save_depth_viz(depth_viz_path, depth_map)
-    save_count_viz(count_viz_path, count_map)
+    np.save(paths.depth_npy, sample.depth_map)
+    save_depth_png(paths.depth_png_uint16, sample.depth_map, args.depth_png_scale)
+    Image.fromarray(sample.count_map).save(paths.count_png_uint16)
+    save_depth_viz(paths.depth_viz_png, sample.depth_map)
+    save_count_viz(paths.count_viz_png, sample.count_map)
     if not args.no_viz:
-        visualize_projection(target_image_path, visible_uv, visible_depth, viz_path, args.max_viz_points)
+        visualize_projection(sample.target.image_path, sample.uv, sample.depth, paths.visualization, args.max_viz_points)
 
+
+def projection_summary(tables: NuScenesTables, sample: ProjectionSample, paths: OutputPaths, args: argparse.Namespace) -> dict[str, Any]:
+    height, width = sample.target.image_shape
     return {
-        "available": True,
-        "nsweeps": int(nsweeps),
-        "raw_points": int(devkit_points.nbr_points()),
-        "projected_visible_points": int(len(visible_depth)),
-        "filled_depth_pixels": int(np.count_nonzero(depth_map)),
-        "time_lag_min": float(np.min(devkit_times)) if devkit_times.size else None,
-        "time_lag_max": float(np.max(devkit_times)) if devkit_times.size else None,
+        "root": str(tables.root),
+        "version": args.version,
+        "scene": args.scene,
+        "camera": args.camera,
+        "lidar": args.lidar,
+        "accumulation_mode": "sweeps",
+        "sweeps_before": int(args.sweeps_before),
+        "sweeps_after": int(args.sweeps_after),
+        "include_target_sweep": not bool(args.exclude_target_sweep),
+        "exclude_target_sweep": bool(args.exclude_target_sweep),
+        "target_index": int(sample.target.sample_index),
+        "target_sample_token": sample.target.sample["token"],
+        "target_camera_sample_data_token": sample.target.camera_sample_data["token"],
+        "target_image": str(sample.target.image_path),
+        "image_shape": [int(height), int(width)],
+        "source_sweeps": sample.source_sweeps,
+        "raw_accumulated_points": int(sample.raw_accumulated_points),
+        "visible_projected_points": int(len(sample.depth)),
+        "filled_depth_pixels": int(np.count_nonzero(sample.depth_map)),
+        "depth_conflict": args.depth_conflict,
+        "occlusion_filter": "placeholder_keep_all",
         "outputs": {
-            "projection_npz": str(npz_path),
-            "depth_npy": str(depth_npy_path),
-            "depth_png_uint16": str(depth_png_path),
-            "count_png_uint16": str(count_png_path),
-            "depth_viz_png": str(depth_viz_path),
-            "count_viz_png": str(count_viz_path),
-            "visualization": None if args.no_viz else str(viz_path),
+            "projection_npz": str(paths.projection_npz),
+            "depth_npy": str(paths.depth_npy),
+            "depth_png_uint16": str(paths.depth_png_uint16),
+            "count_png_uint16": str(paths.count_png_uint16),
+            "depth_viz_png": str(paths.depth_viz_png),
+            "count_viz_png": str(paths.count_viz_png),
+            "visualization": None if args.no_viz else str(paths.visualization),
         },
     }
+
+
+def write_summary(paths: OutputPaths, summary: dict[str, Any]) -> None:
+    paths.summary.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -470,8 +531,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/nuscenes_lidar_accumulation_demo"))
     parser.add_argument("--no-viz", action="store_true")
     parser.add_argument("--max-viz-points", type=int, default=200000)
-    parser.add_argument("--compare-devkit", action="store_true")
-    parser.add_argument("--devkit-min-distance", type=float, default=1.0)
     return parser
 
 
@@ -493,100 +552,17 @@ def main() -> int:
     validate_args(args)
     tables = load_tables(args.root, args.version)
     samples = scene_samples_in_order(tables, args.scene)
-    target_index, target_sample = select_target_sample(samples, args)
-    source_lidar_records = select_source_lidar_records(tables, target_sample, args)
-    target_camera_sd, target_camera_pose, intrinsics, image_shape = camera_info(tables, target_sample, args.camera)
-    target_image_path = resolve_data_path(tables.root, target_camera_sd["filename"])
-
-    points_cam, source_indices, source_meta = accumulate_lidar_in_target_camera(
-        tables,
-        source_lidar_records,
-        target_camera_pose,
-    )
-    visible_points_cam, uv, depth, visible_source_indices = visible_projected_points(
-        points_cam,
-        source_indices,
-        intrinsics,
-        image_shape,
-        args.min_depth,
-        args.max_depth,
-    )
-    depth_map, count_map = rasterize_depth(uv, depth, image_shape, args.depth_conflict)
-
-    scene_part = args.scene.replace("/", "_")
-    output_dir = args.output_dir / scene_part / args.camera / f"{target_index:06d}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    npz_path = output_dir / "accumulated_lidar_projection.npz"
-    depth_npy_path = output_dir / "semi_dense_depth.npy"
-    depth_png_path = output_dir / "semi_dense_depth_uint16.png"
-    count_png_path = output_dir / "projection_count_uint16.png"
-    depth_viz_path = output_dir / "semi_dense_depth_viz.png"
-    count_viz_path = output_dir / "projection_count_viz.png"
-    viz_path = output_dir / "projection_viz.jpg"
-    summary_path = output_dir / "summary.json"
-
-    np.savez_compressed(
-        npz_path,
-        points_cam=visible_points_cam.astype(np.float32),
-        uv=uv.astype(np.float32),
-        depth=depth.astype(np.float32),
-        source_sweep_offset=visible_source_indices.astype(np.int32),
-        intrinsics=intrinsics.astype(np.float32),
-        target_camera_pose=target_camera_pose.astype(np.float32),
-        image_shape=np.asarray(image_shape, dtype=np.int32),
-    )
-    np.save(depth_npy_path, depth_map)
-    save_depth_png(depth_png_path, depth_map, args.depth_png_scale)
-    Image.fromarray(count_map).save(count_png_path)
-    save_depth_viz(depth_viz_path, depth_map)
-    save_count_viz(count_viz_path, count_map)
-    if not args.no_viz:
-        visualize_projection(target_image_path, uv, depth, viz_path, args.max_viz_points)
-
-    devkit_summary = (
-        save_devkit_projection(tables, target_sample, args, image_shape, intrinsics, target_image_path, output_dir)
-        if args.compare_devkit
-        else None
-    )
-    summary = {
-        "root": str(args.root),
-        "version": args.version,
-        "scene": args.scene,
-        "camera": args.camera,
-        "lidar": args.lidar,
-        "accumulation_mode": "sweeps",
-        "sweeps_before": int(args.sweeps_before),
-        "sweeps_after": int(args.sweeps_after),
-        "include_target_sweep": not bool(args.exclude_target_sweep),
-        "exclude_target_sweep": bool(args.exclude_target_sweep),
-        "target_index": int(target_index),
-        "target_sample_token": target_sample["token"],
-        "target_camera_sample_data_token": target_camera_sd["token"],
-        "target_image": str(target_image_path),
-        "image_shape": [int(image_shape[0]), int(image_shape[1])],
-        "source_frames": source_meta,
-        "raw_accumulated_points": int(len(points_cam)),
-        "visible_projected_points": int(len(depth)),
-        "filled_depth_pixels": int(np.count_nonzero(depth_map)),
-        "depth_conflict": args.depth_conflict,
-        "occlusion_filter": "placeholder_keep_all",
-        "outputs": {
-            "projection_npz": str(npz_path),
-            "depth_npy": str(depth_npy_path),
-            "depth_png_uint16": str(depth_png_path),
-            "count_png_uint16": str(count_png_path),
-            "depth_viz_png": str(depth_viz_path),
-            "count_viz_png": str(count_viz_path),
-            "visualization": None if args.no_viz else str(viz_path),
-        },
-        "devkit_compare": devkit_summary,
-    }
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"target image: {target_image_path}")
+    target = build_camera_target(tables, samples, args)
+    sample = build_projection_sample(tables, target, args)
+    paths = prepare_output_paths(args.output_dir, args.scene, args.camera, target.sample_index)
+    save_projection_sample(sample, paths, args)
+    summary = projection_summary(tables, sample, paths, args)
+    write_summary(paths, summary)
+    print(f"target image: {target.image_path}")
     print(f"raw accumulated points: {summary['raw_accumulated_points']}")
     print(f"visible projected points: {summary['visible_projected_points']}")
     print(f"filled depth pixels: {summary['filled_depth_pixels']}")
-    print(f"summary: {summary_path}")
+    print(f"summary: {paths.summary}")
     return 0
 
 
