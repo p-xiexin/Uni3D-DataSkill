@@ -19,6 +19,8 @@ class NuScenesTables:
     sample_data: dict[str, dict[str, Any]]
     calibrated: dict[str, dict[str, Any]]
     ego_poses: dict[str, dict[str, Any]]
+    sensors: dict[str, dict[str, Any]]
+    sample_data_by_sample_channel: dict[str, dict[str, str]]
 
 
 def read_json(path: Path) -> Any:
@@ -29,14 +31,25 @@ def load_tables(root: Path, version: str) -> NuScenesTables:
     table_root = root / version
     if not table_root.is_dir():
         raise FileNotFoundError(f"nuScenes table directory not found: {table_root}")
+    sample_data = {item["token"]: item for item in read_json(table_root / "sample_data.json")}
+    calibrated = {item["token"]: item for item in read_json(table_root / "calibrated_sensor.json")}
+    sensors = {item["token"]: item for item in read_json(table_root / "sensor.json")}
+    sample_data_by_sample_channel: dict[str, dict[str, str]] = {}
+    for item in sample_data.values():
+        calib = calibrated[item["calibrated_sensor_token"]]
+        sensor = sensors[calib["sensor_token"]]
+        channel = sensor["channel"]
+        sample_data_by_sample_channel.setdefault(item["sample_token"], {})[channel] = item["token"]
     return NuScenesTables(
         root=root,
         table_root=table_root,
         scenes={item["name"]: item for item in read_json(table_root / "scene.json")},
         samples={item["token"]: item for item in read_json(table_root / "sample.json")},
-        sample_data={item["token"]: item for item in read_json(table_root / "sample_data.json")},
-        calibrated={item["token"]: item for item in read_json(table_root / "calibrated_sensor.json")},
+        sample_data=sample_data,
+        calibrated=calibrated,
         ego_poses={item["token"]: item for item in read_json(table_root / "ego_pose.json")},
+        sensors=sensors,
+        sample_data_by_sample_channel=sample_data_by_sample_channel,
     )
 
 
@@ -133,10 +146,17 @@ def sample_data_pose_c2w(tables: NuScenesTables, sample_data_record: dict[str, A
     return ego_to_global @ sensor_to_ego
 
 
+def sample_data_for_channel(tables: NuScenesTables, sample: dict[str, Any], channel: str) -> dict[str, Any]:
+    channel_map = tables.sample_data_by_sample_channel.get(sample["token"], {})
+    sample_data_token = channel_map.get(channel)
+    if sample_data_token is None:
+        available = ", ".join(sorted(channel_map)) or "none"
+        raise KeyError(f"sample {sample['token']} has no channel {channel}. Available channels: {available}")
+    return tables.sample_data[sample_data_token]
+
+
 def camera_info(tables: NuScenesTables, sample: dict[str, Any], camera_channel: str) -> tuple[dict[str, Any], np.ndarray, np.ndarray, tuple[int, int]]:
-    if camera_channel not in sample["data"]:
-        raise KeyError(f"sample has no camera channel {camera_channel}")
-    camera_sd = tables.sample_data[sample["data"][camera_channel]]
+    camera_sd = sample_data_for_channel(tables, sample, camera_channel)
     camera_pose = sample_data_pose_c2w(tables, camera_sd)
     calibrated = tables.calibrated[camera_sd["calibrated_sensor_token"]]
     intrinsics = np.asarray(calibrated["camera_intrinsic"], dtype=np.float64)
@@ -157,9 +177,10 @@ def accumulate_lidar_in_target_camera(
     all_source_index = []
     source_meta = []
     for source_index, sample in source_samples:
-        if lidar_channel not in sample["data"]:
+        try:
+            lidar_sd = sample_data_for_channel(tables, sample, lidar_channel)
+        except KeyError:
             continue
-        lidar_sd = tables.sample_data[sample["data"][lidar_channel]]
         lidar_path = resolve_data_path(tables.root, lidar_sd["filename"])
         lidar_points = load_lidar_bin(lidar_path)
         lidar_pose = sample_data_pose_c2w(tables, lidar_sd)
@@ -287,9 +308,10 @@ def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], a
         return {"available": False, "error": str(exc)}
 
     nusc = NuScenes(version=args.version, dataroot=str(tables.root), verbose=False)
+    devkit_target_sample = nusc.get("sample", target_sample["token"])
     devkit_points, devkit_times = LidarPointCloud.from_file_multisweep(
         nusc,
-        target_sample,
+        devkit_target_sample,
         chan=args.lidar,
         ref_chan=args.camera,
         nsweeps=args.devkit_nsweeps,
