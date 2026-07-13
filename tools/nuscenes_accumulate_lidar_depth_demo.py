@@ -354,7 +354,15 @@ def visualize_projection(image_path: Path, uv: np.ndarray, depth: np.ndarray, ou
     plt.close("all")
 
 
-def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], args: argparse.Namespace, target_camera_shape: tuple[int, int]) -> dict[str, Any]:
+def save_devkit_projection(
+    tables: NuScenesTables,
+    target_sample: dict[str, Any],
+    args: argparse.Namespace,
+    image_shape: tuple[int, int],
+    intrinsics: np.ndarray,
+    target_image_path: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
     if args.exclude_target_sweep or args.sweeps_after:
         return {
             "available": False,
@@ -368,17 +376,18 @@ def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], a
 
     nusc = NuScenes(version=args.version, dataroot=str(tables.root), verbose=False)
     devkit_target_sample = nusc.get("sample", target_sample["token"])
+    nsweeps = args.sweeps_before + (0 if args.exclude_target_sweep else 1)
     devkit_points, devkit_times = LidarPointCloud.from_file_multisweep(
         nusc,
         devkit_target_sample,
         chan=args.lidar,
         ref_chan=args.camera,
-        nsweeps=args.sweeps_before + (0 if args.exclude_target_sweep else 1),
+        nsweeps=nsweeps,
         min_distance=args.devkit_min_distance,
     )
-    target_camera_sd, _pose, intrinsics, _shape = camera_info(tables, target_sample, args.camera)
-    uv, depth = project_points(devkit_points.points[:3].T.astype(np.float32), intrinsics)
-    height, width = target_camera_shape
+    points_cam = devkit_points.points[:3].T.astype(np.float32)
+    uv, depth = project_points(points_cam, intrinsics)
+    height, width = image_shape
     inside = (
         np.isfinite(uv).all(axis=1)
         & np.isfinite(depth)
@@ -389,14 +398,56 @@ def compare_with_devkit(tables: NuScenesTables, target_sample: dict[str, Any], a
         & (uv[:, 1] >= 0)
         & (uv[:, 1] < height)
     )
+    visible_points_cam = points_cam[inside]
+    visible_uv = uv[inside]
+    visible_depth = depth[inside]
+    visible_times = devkit_times.reshape(-1)[inside] if devkit_times.size else np.empty((0,), dtype=np.float32)
+    depth_map, count_map = rasterize_depth(visible_uv, visible_depth, image_shape, args.depth_conflict)
+
+    devkit_dir = output_dir / "devkit_compare"
+    devkit_dir.mkdir(parents=True, exist_ok=True)
+    npz_path = devkit_dir / "devkit_lidar_projection.npz"
+    depth_npy_path = devkit_dir / "devkit_semi_dense_depth.npy"
+    depth_png_path = devkit_dir / "devkit_semi_dense_depth_uint16.png"
+    count_png_path = devkit_dir / "devkit_projection_count_uint16.png"
+    depth_viz_path = devkit_dir / "devkit_semi_dense_depth_viz.png"
+    count_viz_path = devkit_dir / "devkit_projection_count_viz.png"
+    viz_path = devkit_dir / "devkit_projection_viz.jpg"
+
+    np.savez_compressed(
+        npz_path,
+        points_cam=visible_points_cam.astype(np.float32),
+        uv=visible_uv.astype(np.float32),
+        depth=visible_depth.astype(np.float32),
+        time_lag=visible_times.astype(np.float32),
+        intrinsics=intrinsics.astype(np.float32),
+        image_shape=np.asarray(image_shape, dtype=np.int32),
+    )
+    np.save(depth_npy_path, depth_map)
+    save_depth_png(depth_png_path, depth_map, args.depth_png_scale)
+    Image.fromarray(count_map).save(count_png_path)
+    save_depth_viz(depth_viz_path, depth_map)
+    save_count_viz(count_viz_path, count_map)
+    if not args.no_viz:
+        visualize_projection(target_image_path, visible_uv, visible_depth, viz_path, args.max_viz_points)
+
     return {
         "available": True,
-        "ref_camera_sample_data_token": target_camera_sd["token"],
-        "nsweeps": int(args.sweeps_before + (0 if args.exclude_target_sweep else 1)),
+        "nsweeps": int(nsweeps),
         "raw_points": int(devkit_points.nbr_points()),
-        "projected_visible_points": int(inside.sum()),
+        "projected_visible_points": int(len(visible_depth)),
+        "filled_depth_pixels": int(np.count_nonzero(depth_map)),
         "time_lag_min": float(np.min(devkit_times)) if devkit_times.size else None,
         "time_lag_max": float(np.max(devkit_times)) if devkit_times.size else None,
+        "outputs": {
+            "projection_npz": str(npz_path),
+            "depth_npy": str(depth_npy_path),
+            "depth_png_uint16": str(depth_png_path),
+            "count_png_uint16": str(count_png_path),
+            "depth_viz_png": str(depth_viz_path),
+            "count_viz_png": str(count_viz_path),
+            "visualization": None if args.no_viz else str(viz_path),
+        },
     }
 
 
@@ -492,7 +543,11 @@ def main() -> int:
     if not args.no_viz:
         visualize_projection(target_image_path, uv, depth, viz_path, args.max_viz_points)
 
-    devkit_summary = compare_with_devkit(tables, target_sample, args, image_shape) if args.compare_devkit else None
+    devkit_summary = (
+        save_devkit_projection(tables, target_sample, args, image_shape, intrinsics, target_image_path, output_dir)
+        if args.compare_devkit
+        else None
+    )
     summary = {
         "root": str(args.root),
         "version": args.version,
